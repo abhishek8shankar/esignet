@@ -103,7 +103,7 @@ The script then:
 - Creates the `esignet` namespace (if it doesn't already exist).
 - Disables Istio sidecar injection on that namespace.
 - Runs `helm repo update`.
-- Installs the `mosip/partner-onboarder` chart (`esignet-misp-onboarder`, version `0.0.2-develop`) into the `esignet` namespace, waiting for the job to complete.
+- Installs the `mosip/partner-onboarder` chart (`esignet-misp-onboarder`) into the `esignet` namespace, waiting for the job to complete.
 - Restarts the `esignet` deployment so the new MISP license key takes effect.
 - Cleans up the temporary configmaps created during the run.
 
@@ -119,14 +119,11 @@ Once the onboarder job completes, a detailed HTML report is generated and stored
 2. **KER-KMS-021: The PARTNER Certificate validity is less than required minimum validity**
    Resolution: Check with the admin about adding a grace period in configuration.
 
-3. **Upload of certificate will not be allowed to update other domain certificate**
-   Resolution: This is expected when trying to upload the `ida-cred` certificate a second time — it should only run once, and this error can be ignored if the certificate is already present.
-
-4. **Script exits with "'flag' was not provided"**
+3. **Script exits with "'flag' was not provided"**
    Resolution: Answer the SSL/domain prompt with `Y` or `n` — the script requires a non-empty response.
 
-5. **Script exits after S3/NFS prompt**
+4. **Script exits after S3/NFS prompt**
    Resolution: You must provide either complete S3 details or complete NFS details (server IP and path). Re-run the script with one set fully filled in.
 
-6. **`copy_cm_func.sh` errors when using internal Keycloak**
+5. **`copy_cm_func.sh` errors when using internal Keycloak**
    Resolution: Confirm `../deploy/copy_cm_func.sh` exists relative to where you run `install.sh`, and that the `keycloak-env-vars`, `keycloak`, and `keycloak-client-secrets` configmaps/secrets already exist in the `keycloak` namespace.
