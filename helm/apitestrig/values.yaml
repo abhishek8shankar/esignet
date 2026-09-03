@@ -188,9 +188,14 @@ containerSecurityContext:
   runAsNonRoot: true
 
 ## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-pod
+## Enabled by default: the image runs as uid/gid 1001 (see Dockerfile), and
+## PVC/emptyDir volumes are created owned by root unless fsGroup is set --
+## without this, the harness's own write to the reports volume at
+## reports.mountPath fails with a permission error. See
+## https://github.com/mosip/esignet/issues/2434 §7.
 ##
 podSecurityContext:
-  enabled: false
+  enabled: true
   fsGroup: 1001
 
 istio:
