@@ -1,40 +1,26 @@
-modules:
-  esignet:
-    enabled: true
-    image:
-      repository: mosipdev/apitest-esignet
-      tag: develop
-      pullPolicy: Always
+# Values overrides layered on top of ../../helm/apitestrig's defaults for
+# running the eSignet api-test (Go) harness inside the `esignet` namespace,
+# alongside the eSignet deployment itself. Everything environment-specific
+# (URLs, credentials, cron time, report storage) is filled in interactively
+# by install.sh and passed via --set — this file only carries the bits that
+# don't change per environment.
 
-extraEnvVarsCM:
-  - esignet-global
-  - s3
-  - keycloak-host
-  - db
-  - apitestrig
+image:
+  repository: mosipdev/apitest-esignet
+  tag: develop-go
+  pullPolicy: Always
 
-extraEnvVarsSecret:
-  - apitestrig-esignet-apitestrig
-  - s3-esignet-apitestrig
-  - keycloak-client-secrets
-  - postgres-postgresql
+apitestrig:
+  # The image ships data/config/config.{mock,mosip,sunbird}.json baked in.
+  # This deploy wrapper runs the harness against a real MOSIP-flavoured
+  # eSignet, hence config.mosip.json. Switch to config.mock.json if you're
+  # pointing this at a mock-plugin eSignet instead.
+  configFile: /app/data/config/config.mosip.json
 
 resources:
   limits:
-    cpu: 300m
-    memory: 500Mi
+    cpu: "1"
+    memory: 1Gi
   requests:
-    cpu: 300m
-    memory: 500Mi
-
-apitestrig:
-  configmaps:
-    apitestrig:
-      # Wait time (in milliseconds) after UIN generation in IDREPO before proceeding
-      uinGenerationProcessingDelayTimeInMilliSeconds: "90000"
-
-      # Wait time (in milliseconds) after VID generation in Resident before proceeding
-      vidGenerationProcessingDelayTimeInMilliSeconds: "90000"
-
-      # Maximum number of retry attempts for UIN availability check during OTP generation
-      uinGenMaxLoopCount: "20"
+    cpu: 200m
+    memory: 512Mi
