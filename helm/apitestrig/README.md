@@ -17,7 +17,12 @@ Java testrig's one-image-per-module model.
 - If you plan to run the `conformance` surface, the OpenID Conformance Suite
   must already be running in-cluster (or otherwise reachable) — this chart
   does **not** deploy it. Point `apitestrig.extraEnvVars.CONFORMANCE_BASE_URL`
-  at it.
+  at it, and provide the private plan config via
+  `apitestrig.conformancePlanConfig` (see "Conformance plan config" below).
+  Without both, leave `conformance` out of `apitestrig.surfaces` — the config
+  files this chart's images ship (`config.mosip.json` etc.) default to
+  including it, and will fail with a "config_file ... not readable" error
+  otherwise (see [mosip/esignet#2434](https://github.com/mosip/esignet/issues/2434)).
 - `helm dependency build` (pulls the Bitnami `common` chart used for labels
   and image-name helpers).
 
@@ -92,6 +97,33 @@ helm upgrade --install apitestrig . \
   --set reports.s3.secretKey=<secret> \
   --set reports.persistence.enabled=false   # optional: skip the PVC entirely
 ```
+
+## Conformance plan config
+
+The `conformance` surface needs a private plan config (a JWKS, per
+[`api-test/docs/conformance-suite.md`](../../api-test/docs/conformance-suite.md))
+at exactly the relative path the selected config's `plans[].config_file`
+names — always `conformance-suite-private/<file>.json`. Set
+`apitestrig.conformancePlanConfig.enabled: true` and either point
+`existingSecret` at a Secret you manage out-of-band (one key per plan file,
+e.g. `esignet-config.json`), or fill in `files` for a Helm-managed one:
+
+```bash
+kubectl create secret generic esignet-conformance-plan -n esignet \
+  --from-file=esignet-config.json=./conformance-suite-private/esignet-config.json \
+  --from-file=esignet-fapi2-config.json=./conformance-suite-private/esignet-fapi2-config.json
+
+helm upgrade --install apitestrig . \
+  --set apitestrig.surfaces=conformance\,api\,e2e \
+  --set apitestrig.conformancePlanConfig.enabled=true \
+  --set apitestrig.conformancePlanConfig.existingSecret=esignet-conformance-plan \
+  --set apitestrig.extraEnvVars.CONFORMANCE_BASE_URL=http://openid-conformance-suite.<ns>.svc.cluster.local:8443
+```
+
+The `client_id`s inside that plan file must already be pre-registered in
+eSignet as `private_key_jwt`, with a redirect URI of
+`<CONFORMANCE_BASE_URL>/test/a/<alias>/callback` — an environment-provisioning
+step this chart can't do for you.
 
 ## CronJob vs Job
 

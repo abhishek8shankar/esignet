@@ -49,6 +49,17 @@ Helm-managed or user-supplied via existingSecret.
 {{- end -}}
 
 {{/*
+Name of the Secret backing the conformance plan config files.
+*/}}
+{{- define "apitestrig.conformancePlanConfigSecretName" -}}
+{{- if .Values.apitestrig.conformancePlanConfig.existingSecret -}}
+{{ .Values.apitestrig.conformancePlanConfig.existingSecret }}
+{{- else -}}
+{{ include "common.names.fullname" . }}-conformance-plan
+{{- end -}}
+{{- end -}}
+
+{{/*
 Name of the Secret backing extraEnvVarsSecret.
 */}}
 {{- define "apitestrig.envSecretName" -}}
@@ -195,6 +206,11 @@ spec:
           mountPath: /app/custom-config
           readOnly: true
         {{- end }}
+        {{- if .Values.apitestrig.conformancePlanConfig.enabled }}
+        - name: conformance-plan-config
+          mountPath: /app/conformance-suite-private
+          readOnly: true
+        {{- end }}
       resources: {{- toYaml .Values.resources | nindent 8 }}
     {{- if .Values.reports.s3.enabled }}
     - name: report-uploader
@@ -258,5 +274,11 @@ spec:
     - name: custom-config
       configMap:
         name: {{ include "common.names.fullname" . }}-config
+    {{- end }}
+    {{- if .Values.apitestrig.conformancePlanConfig.enabled }}
+    - name: conformance-plan-config
+      secret:
+        secretName: {{ include "apitestrig.conformancePlanConfigSecretName" . }}
+        defaultMode: 0400
     {{- end }}
 {{- end -}}

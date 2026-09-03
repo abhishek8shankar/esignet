@@ -17,6 +17,17 @@ apitestrig:
   # pointing this at a mock-plugin eSignet instead.
   configFile: /app/data/config/config.mosip.json
 
+  # config.mosip.json's own run.surfaces defaults to
+  # ["conformance", "api", "e2e"], and the conformance surface needs a
+  # private plan config (conformance-suite-private/esignet-*.json) that
+  # isn't shipped in the image or mounted by default (see
+  # https://github.com/mosip/esignet/issues/2434 §5a/§6ii). Until that's
+  # set up (apitestrig.conformancePlanConfig below, plus a reachable
+  # CONFORMANCE_BASE_URL), default to api,e2e so a plain install doesn't
+  # fail on a missing plan file. Set to "" to fall back to the config
+  # file's own surfaces once conformance is wired up.
+  surfaces: "api,e2e"
+
 resources:
   limits:
     cpu: "1"

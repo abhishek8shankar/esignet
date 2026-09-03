@@ -16,6 +16,16 @@ used are controlled by the selected `apitestrig.configFile` (see
 `apitestrig.surfaces`/the relevant `apitestrig.extraEnvVars` yourself via an
 extra `--set` if you need to override it for a specific install.
 
+`values.yaml` here pins `apitestrig.surfaces: "api,e2e"` by default:
+`config.mosip.json`'s own default includes `conformance`, which needs a
+private plan config this chart doesn't mount unless you set up
+`apitestrig.conformancePlanConfig` (see the chart's README) and a reachable
+`CONFORMANCE_BASE_URL` — without both, running with `conformance` in the
+surface list fails with a `config_file ... not readable` error (see
+[mosip/esignet#2434](https://github.com/mosip/esignet/issues/2434)). Set
+`apitestrig.surfaces: ""` in `values.yaml` once that's wired up, to fall back
+to the config file's own surface list.
+
 ## Prerequisites
 - `kubectl` and `helm` installed locally.
 - eSignet already deployed and reachable (in this namespace, or elsewhere —

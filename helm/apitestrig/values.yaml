@@ -106,6 +106,30 @@ apitestrig:
     #   { "keycloak": { "client_secret": "changeme" } }
     data: ""
 
+  ## Private plan config for the `conformance` surface (OpenID Conformance
+  ## Suite plan files, containing a private JWKS -- treat as a long-lived
+  ## credential). The harness looks for these at the exact relative path
+  ## named in the selected config's plans[].config_file, always under
+  ## conformance-suite-private/ -- mounting here needs no other config
+  ## change. See https://github.com/mosip/esignet/issues/2434 §5a and
+  ## api-test/docs/conformance-suite.md.
+  ##
+  conformancePlanConfig:
+    enabled: false
+    ## Preferred: reference a Secret you manage out-of-band, containing one
+    ## key per plan file (e.g. esignet-config.json, esignet-fapi2-config.json)
+    ## -- key names must match plans[].config_file's basename exactly.
+    existingSecret: ""
+    ## Convenience/dev fallback: inline file contents, rendered into a
+    ## Helm-managed Secret when existingSecret is empty. Still ends up
+    ## readable via `helm get values`, so prefer existingSecret for anything
+    ## beyond local testing.
+    files: {}
+      # esignet-config.json: |
+      #   { ... }
+      # esignet-fapi2-config.json: |
+      #   { ... }
+
   ## Plain (non-secret) environment variables layered on top of both config
   ## files, mirroring api-test/.env.example. Rendered as literal env values.
   ##
