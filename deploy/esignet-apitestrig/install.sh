@@ -75,6 +75,39 @@ function installing_apitestrig() {
     API_TLS_VERIFY="false"
   fi
 
+  read -rp "Test individual ID (UIN/VID/phone/email of a pre-provisioned test identity): " INDIVIDUAL_ID
+  if [[ -z "$INDIVIDUAL_ID" ]]; then
+    echo "ERROR: Individual ID is required; EXITING."
+    exit 1
+  fi
+
+  ID_TYPE=""
+  while [[ "$ID_TYPE" != "uin" && "$ID_TYPE" != "vid" && "$ID_TYPE" != "phone" && "$ID_TYPE" != "email" ]]; do
+    read -rp "ID type (uin/vid/phone/email): " ID_TYPE
+    ID_TYPE=$(printf '%s' "$ID_TYPE" | tr '[:upper:]' '[:lower:]')
+  done
+
+  echo ""
+  echo "Which surfaces should run?"
+  echo "  1) api,e2e             - no OpenID Conformance Suite required"
+  echo "  2) conformance,api,e2e - requires the Conformance Suite already running in-cluster"
+  read -rp "Enter your choice [1-2]: " SURFACE_CHOICE
+
+  CONFORMANCE_BASE_URL=""
+  case "$SURFACE_CHOICE" in
+    2)
+      SURFACES="conformance,api,e2e"
+      read -rp "Conformance suite base URL (e.g. http://openid-conformance-suite.<ns>.svc.cluster.local:8443): " CONFORMANCE_BASE_URL
+      if [[ -z "$CONFORMANCE_BASE_URL" ]]; then
+        echo "ERROR: Conformance suite base URL is required for this surface selection; EXITING."
+        exit 1
+      fi
+      ;;
+    *)
+      SURFACES="api,e2e"
+      ;;
+  esac
+
   read -rp "Please enter the time (hr) to run the cronjob every day (0-23): " time
   if [[ -z "$time" ]] || ! [[ "$time" =~ ^[0-9]+$ ]] || (( time < 0 || time > 23 )); then
     echo "ERROR: Time must be a number between 0 and 23; EXITING."
@@ -167,11 +200,15 @@ function installing_apitestrig() {
     -f values.yaml \
     --set triggerKind=cronjob \
     --set crontime="0 $time * * *" \
+    --set apitestrig.surfaces="$SURFACES" \
     --set apitestrig.extraEnvVars.MOSIP_ESIGNET_BASE_URL="$MOSIP_ESIGNET_BASE_URL" \
     --set apitestrig.extraEnvVars.KEYCLOAK_TOKEN_URL="$KEYCLOAK_TOKEN_URL" \
     --set apitestrig.extraEnvVars.ESIGNET_TLS_VERIFY="$ESIGNET_TLS_VERIFY" \
     --set apitestrig.extraEnvVars.API_TLS_VERIFY="$API_TLS_VERIFY" \
+    --set apitestrig.extraEnvVars.CONFORMANCE_BASE_URL="$CONFORMANCE_BASE_URL" \
+    --set apitestrig.extraEnvVars.ID_TYPE="$ID_TYPE" \
     --set apitestrig.extraEnvVarsSecret.KEYCLOAK_CLIENT_SECRET="$KEYCLOAK_CLIENT_SECRET" \
+    --set apitestrig.extraEnvVarsSecret.INDIVIDUAL_ID="$INDIVIDUAL_ID" \
     "${REPORT_OPTS[@]}"
 
   echo "Installed $RELEASE_NAME."

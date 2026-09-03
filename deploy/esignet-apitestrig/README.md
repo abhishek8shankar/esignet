@@ -10,21 +10,17 @@ published `mosip/apitestrig` chart with `modules.esignet.enabled=true`. The
 Go harness ships as a single image rather than one image per MOSIP module,
 so this script drives the local chart directly.
 
-Which test surfaces run (`conformance`/`api`/`e2e`) and the test identity
-used are controlled by the selected `apitestrig.configFile` (see
-`values.yaml`) rather than by this script — edit that config, or set
-`apitestrig.surfaces`/the relevant `apitestrig.extraEnvVars` yourself via an
-extra `--set` if you need to override it for a specific install.
+`install.sh` prompts for the test identity and which surfaces to run (see
+below) and passes them straight through as `--set` overrides — you don't
+need to hand-edit `apitestrig.configFile`'s own `run.surfaces` for a normal
+install.
 
-`values.yaml` here pins `apitestrig.surfaces: "api,e2e"` by default:
-`config.mosip.json`'s own default includes `conformance`, which needs a
-private plan config this chart doesn't mount unless you set up
-`apitestrig.conformancePlanConfig` (see the chart's README) and a reachable
-`CONFORMANCE_BASE_URL` — without both, running with `conformance` in the
-surface list fails with a `config_file ... not readable` error (see
-[mosip/esignet#2434](https://github.com/mosip/esignet/issues/2434)). Set
-`apitestrig.surfaces: ""` in `values.yaml` once that's wired up, to fall back
-to the config file's own surface list.
+If you pick the `conformance,api,e2e` surface set, note that `conformance`
+also needs a private plan config this chart doesn't mount by default (see
+`apitestrig.conformancePlanConfig` in the chart's README) on top of a
+reachable `CONFORMANCE_BASE_URL` — without both it fails with a
+`config_file ... not readable` error (see
+[mosip/esignet#2434](https://github.com/mosip/esignet/issues/2434)).
 
 ## Prerequisites
 - `kubectl` and `helm` installed locally.
@@ -46,6 +42,10 @@ You'll be prompted for:
 - whether eSignet's certificate is self-signed (sets `ESIGNET_TLS_VERIFY` /
   `API_TLS_VERIFY` to `false` instead of importing a certificate — the Go
   harness needs no Java keystore/`cacerts` step),
+- the test identity (`INDIVIDUAL_ID`, kept out of ConfigMaps as a Secret
+  value since it's PII, and `ID_TYPE`),
+- which surfaces to run (`api,e2e`, or `conformance,api,e2e` plus the
+  conformance suite's base URL),
 - the cron schedule,
 - where to persist the consolidated HTML report: S3/MinIO (endpoint, bucket,
   path prefix, credentials — uploaded after each run via a second container
