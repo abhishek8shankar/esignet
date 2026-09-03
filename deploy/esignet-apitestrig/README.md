@@ -38,16 +38,19 @@ You'll be prompted for:
 - the eSignet base URL (defaults from the `esignet-global` configmap's
   `mosip-esignet-host` if eSignet is deployed in the same `esignet`
   namespace),
-- the Keycloak token URL and client secret for the test client,
+- the Keycloak token URL and client secret for the test client, plus an
+  optional client ID override if the config default (`mosip-pms-client`)
+  isn't the right admin client for this environment,
 - whether eSignet's certificate is self-signed (sets `ESIGNET_TLS_VERIFY` /
   `API_TLS_VERIFY` to `false` instead of importing a certificate — the Go
   harness needs no Java keystore/`cacerts` step),
 - the test identity (`INDIVIDUAL_ID`, kept out of ConfigMaps as a Secret
   value since it's PII, and `ID_TYPE`),
 - OTP and PMS settings the mosipid plugin needs and `config.mosip.json`
-  ships blank (`OTP_WS_URL`, `PMS_BASE_URL`, `AUTH_PARTNER_ID`,
-  `AUTH_POLICY_ID` — see the config file's own `_comment` block and
-  [mosip/esignet#2434](https://github.com/mosip/esignet/issues/2434) §4),
+  ships blank (`OTP_WS_URL`, `OTP_RECIPIENT_EMAIL`, `PMS_BASE_URL`,
+  `AUTH_PARTNER_ID`, `AUTH_POLICY_ID` — see the config file's own `_comment`
+  block and [mosip/esignet#2434](https://github.com/mosip/esignet/issues/2434)
+  §4),
 - which surfaces to run (`api,e2e`, or `conformance,api,e2e` plus the
   conformance suite's base URL),
 - the cron schedule,

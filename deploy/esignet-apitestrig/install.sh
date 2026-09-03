@@ -66,6 +66,17 @@ function installing_apitestrig() {
     exit 1
   fi
 
+  # config.mosip.json defaults keycloak.client_id to "mosip-pms-client" for
+  # PMS-routed calls -- direct eSignet client-mgmt calls or a differently
+  # configured environment may need a different admin client. Optional:
+  # leave blank to keep the config file's default.
+  read -rp "Keycloak client ID for the admin token [leave blank for config default, mosip-pms-client]: " KEYCLOAK_CLIENT_ID
+
+  EXTRA_OPTS=()
+  if [[ -n "$KEYCLOAK_CLIENT_ID" ]]; then
+    EXTRA_OPTS+=(--set "apitestrig.extraEnvVars.KEYCLOAK_CLIENT_ID=$KEYCLOAK_CLIENT_ID")
+  fi
+
   ESIGNET_TLS_VERIFY="true"
   API_TLS_VERIFY="true"
   read -rp "Does the eSignet endpoint use a self-signed/internal certificate? (y/N): " insecure_flag
@@ -94,6 +105,14 @@ function installing_apitestrig() {
   read -rp "OTP mock-SMTP websocket URL (esignet.otp.ws_url, e.g. https://smtp.<env>.mosip.net/): " OTP_WS_URL
   if [[ -z "$OTP_WS_URL" ]]; then
     echo "ERROR: OTP websocket URL is required; EXITING."
+    exit 1
+  fi
+
+  # Without this, the harness listens on the mock-SMTP socket for an empty
+  # recipient string and the dynamic-OTP e2e scenarios never see their OTP.
+  read -rp "OTP recipient email (esignet.otp.recipient_email, the test identity's registered contact): " OTP_RECIPIENT_EMAIL
+  if [[ -z "$OTP_RECIPIENT_EMAIL" ]]; then
+    echo "ERROR: OTP recipient email is required; EXITING."
     exit 1
   fi
 
@@ -236,11 +255,13 @@ function installing_apitestrig() {
     --set apitestrig.extraEnvVars.CONFORMANCE_BASE_URL="$CONFORMANCE_BASE_URL" \
     --set apitestrig.extraEnvVars.ID_TYPE="$ID_TYPE" \
     --set apitestrig.extraEnvVars.OTP_WS_URL="$OTP_WS_URL" \
+    --set apitestrig.extraEnvVars.OTP_RECIPIENT_EMAIL="$OTP_RECIPIENT_EMAIL" \
     --set apitestrig.extraEnvVars.PMS_BASE_URL="$PMS_BASE_URL" \
     --set apitestrig.extraEnvVars.AUTH_PARTNER_ID="$AUTH_PARTNER_ID" \
     --set apitestrig.extraEnvVars.AUTH_POLICY_ID="$AUTH_POLICY_ID" \
     --set apitestrig.extraEnvVarsSecret.KEYCLOAK_CLIENT_SECRET="$KEYCLOAK_CLIENT_SECRET" \
     --set apitestrig.extraEnvVarsSecret.INDIVIDUAL_ID="$INDIVIDUAL_ID" \
+    "${EXTRA_OPTS[@]}" \
     "${REPORT_OPTS[@]}"
 
   echo "Installed $RELEASE_NAME."
