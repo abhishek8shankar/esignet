@@ -69,7 +69,8 @@ function installing_apitestrig() {
   ESIGNET_TLS_VERIFY="true"
   API_TLS_VERIFY="true"
   read -rp "Does the eSignet endpoint use a self-signed/internal certificate? (y/N): " insecure_flag
-  if [[ "${insecure_flag,,}" == "y" ]]; then
+  insecure_flag=$(printf '%s' "$insecure_flag" | tr '[:upper:]' '[:lower:]')
+  if [[ "$insecure_flag" == "y" ]]; then
     ESIGNET_TLS_VERIFY="false"
     API_TLS_VERIFY="false"
   fi
