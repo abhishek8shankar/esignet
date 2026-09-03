@@ -1,0 +1,188 @@
+{{/*
+Return the proper image name
+*/}}
+{{- define "apitestrig.image" -}}
+{{ include "common.images.image" (dict "imageRoot" .Values.image "global" .Values.global) }}
+{{- end -}}
+
+{{/*
+Return the proper Docker Image Registry Secret Names
+*/}}
+{{- define "apitestrig.imagePullSecrets" -}}
+{{- include "common.images.pullSecrets" (dict "images" (list .Values.image) "global" .Values.global) -}}
+{{- end -}}
+
+{{/*
+Create the name of the service account to use
+*/}}
+{{- define "apitestrig.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create -}}
+    {{ default (printf "%s" (include "common.names.fullname" .)) .Values.serviceAccount.name }}
+{{- else -}}
+    {{ default "default" .Values.serviceAccount.name }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Resolve the -c value to pass to run-all.sh: the mounted custom config when
+apitestrig.configOverride is set, otherwise the in-image path from
+apitestrig.configFile.
+*/}}
+{{- define "apitestrig.configPath" -}}
+{{- if .Values.apitestrig.configOverride -}}
+/app/custom-config/config.json
+{{- else -}}
+{{ .Values.apitestrig.configFile }}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Name of the Secret backing the config.local.json overlay, whether
+Helm-managed or user-supplied via existingSecret.
+*/}}
+{{- define "apitestrig.configLocalSecretName" -}}
+{{- if .Values.apitestrig.configLocal.existingSecret -}}
+{{ .Values.apitestrig.configLocal.existingSecret }}
+{{- else -}}
+{{ include "common.names.fullname" . }}-config-local
+{{- end -}}
+{{- end -}}
+
+{{/*
+Name of the Secret backing extraEnvVarsSecret.
+*/}}
+{{- define "apitestrig.envSecretName" -}}
+{{ include "common.names.fullname" . }}-env
+{{- end -}}
+
+{{/*
+Name of the PVC backing the reports volume.
+*/}}
+{{- define "apitestrig.reportsClaimName" -}}
+{{- if .Values.reports.persistence.existingClaim -}}
+{{ .Values.reports.persistence.existingClaim }}
+{{- else -}}
+{{ include "common.names.fullname" . }}-reports
+{{- end -}}
+{{- end -}}
+
+{{/*
+The shared pod spec used by both cronjob.yaml and job.yaml, so the two
+trigger kinds can never drift out of sync with each other.
+*/}}
+{{- define "apitestrig.podTemplate" -}}
+metadata:
+  annotations:
+    sidecar.istio.io/inject: {{ .Values.istio.sidecarInject | quote }}
+    {{- if .Values.podAnnotations }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.podAnnotations "context" $) | nindent 4 }}
+    {{- end }}
+  labels: {{- include "common.labels.standard" . | nindent 4 }}
+    {{- if .Values.commonLabels }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.commonLabels "context" $) | nindent 4 }}
+    {{- end }}
+    {{- if .Values.podLabels }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.podLabels "context" $) | nindent 4 }}
+    {{- end }}
+spec:
+  restartPolicy: Never
+  serviceAccountName: {{ include "apitestrig.serviceAccountName" . }}
+  {{- include "apitestrig.imagePullSecrets" . | nindent 2 }}
+  {{- if .Values.podSecurityContext.enabled }}
+  securityContext: {{- omit .Values.podSecurityContext "enabled" | toYaml | nindent 4 }}
+  {{- end }}
+  {{- if .Values.hostAliases }}
+  hostAliases: {{- include "common.tplvalues.render" (dict "value" .Values.hostAliases "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if .Values.affinity }}
+  affinity: {{- include "common.tplvalues.render" (dict "value" .Values.affinity "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if .Values.nodeSelector }}
+  nodeSelector: {{- include "common.tplvalues.render" (dict "value" .Values.nodeSelector "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if .Values.tolerations }}
+  tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.tolerations "context" $) | nindent 4 }}
+  {{- end }}
+  containers:
+    - name: apitestrig
+      image: {{ include "apitestrig.image" . }}
+      imagePullPolicy: {{ .Values.image.pullPolicy }}
+      {{- if .Values.containerSecurityContext.enabled }}
+      securityContext: {{- omit .Values.containerSecurityContext "enabled" | toYaml | nindent 8 }}
+      {{- end }}
+      {{- if .Values.command }}
+      command: {{- include "common.tplvalues.render" (dict "value" .Values.command "context" $) | nindent 8 }}
+      {{- end }}
+      args:
+        - "-c"
+        - {{ include "apitestrig.configPath" . | trim | quote }}
+        {{- if .Values.apitestrig.surfaces }}
+        - "-s"
+        - {{ .Values.apitestrig.surfaces | quote }}
+        {{- end }}
+        {{- if .Values.args }}
+        {{- include "common.tplvalues.render" (dict "value" .Values.args "context" $) | nindent 8 }}
+        {{- end }}
+      env:
+        - name: REPORT_DIR
+          value: {{ .Values.reports.mountPath | quote }}
+        {{- if .Values.apitestrig.configLocal.enabled }}
+        - name: CONFIG_LOCAL
+          value: "/app/secrets/config.local.json"
+        {{- end }}
+        {{- range $key, $value := .Values.apitestrig.extraEnvVars }}
+        {{- if $value }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
+        {{- range $key, $value := .Values.apitestrig.extraEnvVarsSecret }}
+        {{- if $value }}
+        - name: {{ $key }}
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "apitestrig.envSecretName" $ }}
+              key: {{ $key }}
+        {{- end }}
+        {{- end }}
+      envFrom:
+        {{- range .Values.apitestrig.extraEnvVarsCM }}
+        - configMapRef:
+            name: {{ . }}
+        {{- end }}
+        {{- range .Values.apitestrig.extraEnvVarsSecretRefs }}
+        - secretRef:
+            name: {{ . }}
+        {{- end }}
+      volumeMounts:
+        - name: reports
+          mountPath: {{ .Values.reports.mountPath }}
+        {{- if .Values.apitestrig.configLocal.enabled }}
+        - name: config-local
+          mountPath: /app/secrets
+          readOnly: true
+        {{- end }}
+        {{- if .Values.apitestrig.configOverride }}
+        - name: custom-config
+          mountPath: /app/custom-config
+          readOnly: true
+        {{- end }}
+      resources: {{- toYaml .Values.resources | nindent 8 }}
+  volumes:
+    - name: reports
+      persistentVolumeClaim:
+        claimName: {{ include "apitestrig.reportsClaimName" . }}
+    {{- if .Values.apitestrig.configLocal.enabled }}
+    - name: config-local
+      secret:
+        secretName: {{ include "apitestrig.configLocalSecretName" . }}
+        items:
+          - key: {{ .Values.apitestrig.configLocal.existingSecretKey }}
+            path: config.local.json
+    {{- end }}
+    {{- if .Values.apitestrig.configOverride }}
+    - name: custom-config
+      configMap:
+        name: {{ include "common.names.fullname" . }}-config
+    {{- end }}
+{{- end -}}

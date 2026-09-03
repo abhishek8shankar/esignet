@@ -1,0 +1,215 @@
+## Global Docker image parameters
+## Please note this will override the image parameters, including dependencies, configured to use the global value
+##
+# global:
+#   imageRegistry: myRegistryName
+#   imagePullSecrets:
+#     - myRegistryKeySecretName
+#   storageClass: myStorageClass
+
+## Add labels to all the deployed resources
+##
+commonLabels:
+  app.kubernetes.io/component: mosip
+
+## Add annotations to all the deployed resources
+##
+commonAnnotations: {}
+
+## Kubernetes Cluster Domain
+##
+clusterDomain: cluster.local
+
+## Extra objects to deploy (value evaluated as a template)
+##
+extraDeploy: []
+
+image:
+  registry: docker.io
+  repository: mosipdev/apitest-esignet
+  tag: develop-go
+  ## Defaults to 'Always' if image tag is 'latest', else set to 'IfNotPresent'
+  pullPolicy: Always
+  ## Optionally specify an array of imagePullSecrets.
+  # pullSecrets:
+  #   - myRegistryKeySecretName
+
+## ---------------------------------------------------------------------------
+## How the rig is triggered
+## ---------------------------------------------------------------------------
+
+## cronjob: scheduled, recurring runs (the usual "nightly regression" model)
+## job:     a single on-demand run, e.g. triggered by `helm install`/`helm
+##          upgrade` from CI, or `kubectl create job --from=cronjob/...`
+##
+triggerKind: cronjob   # cronjob | job
+
+## Only used when triggerKind: cronjob
+##
+crontime: "0 3 * * *"    ## run every day at 3 AM
+
+concurrencyPolicy: Forbid
+successfulJobsHistoryLimit: 1
+failedJobsHistoryLimit: 1
+backoffLimit: 0
+## How long a run is allowed to take before Kubernetes kills the Job/pod.
+## The harness itself has no internal timeout, so this is the real ceiling.
+##
+activeDeadlineSeconds: 3600
+
+## ---------------------------------------------------------------------------
+## Test-rig configuration
+## ---------------------------------------------------------------------------
+apitestrig:
+  ## Path INSIDE THE IMAGE to the plugin config to run. run-all.sh's Dockerfile
+  ## already bakes in data/config/config.{mock,mosip,sunbird}.json, so picking
+  ## one of those needs no ConfigMap at all -- just point -c at it.
+  ##   /app/data/config/config.mock.json
+  ##   /app/data/config/config.mosip.json
+  ##   /app/data/config/config.sunbird.json
+  ##
+  configFile: /app/data/config/config.mosip.json
+
+  ## Set this to run a config that is NOT baked into the image (e.g. a
+  ## deployment-specific variant). When non-empty, it is rendered into a
+  ## ConfigMap, mounted at /app/custom-config/config.json, and configFile
+  ## above is ignored in favor of that mounted path.
+  ##
+  configOverride: ""
+  # configOverride: |
+  #   {
+  #     "plugin": "mosip",
+  #     "run": { "surfaces": ["api", "e2e"], "report_dir": "/app/out" },
+  #     ...
+  #   }
+
+  ## Narrow which surfaces run, overriding the config file's run.surfaces for
+  ## this deployment. Leave empty to use whatever the selected config already
+  ## specifies. Comma list, e.g. "api,e2e" or "conformance,api,e2e".
+  ##
+  surfaces: ""
+
+  ## config.local.json overlay -- credentials that must NOT sit in values.yaml
+  ## or a ConfigMap. Mounted at runtime and pointed to via CONFIG_LOCAL so it
+  ## is found regardless of where configFile/configOverride lives.
+  ##
+  configLocal:
+    enabled: true
+    ## Preferred: reference a Secret you manage out-of-band (sealed-secrets,
+    ## external-secrets, vault-injector, ...) containing a config.local.json key.
+    existingSecret: ""
+    existingSecretKey: config.local.json
+    ## Convenience/dev fallback: inline JSON, rendered into a Helm-managed
+    ## Secret. Still ends up readable via `helm get values`, so prefer
+    ## existingSecret for anything beyond local testing.
+    # data: |
+    #   { "keycloak": { "client_secret": "changeme" } }
+    data: ""
+
+  ## Plain (non-secret) environment variables layered on top of both config
+  ## files, mirroring api-test/.env.example. Rendered as literal env values.
+  ##
+  extraEnvVars:
+    MOSIP_ESIGNET_BASE_URL: ""
+    KEYCLOAK_TOKEN_URL: ""
+    INDIVIDUAL_ID: ""
+    ID_TYPE: ""
+    TEST_PROFILE: ""
+    ## Point at the OpenID Conformance Suite already running in-cluster, e.g.
+    ## http://openid-conformance-suite.<namespace>.svc.cluster.local:8443
+    CONFORMANCE_BASE_URL: ""
+    CONFORMANCE_TLS_VERIFY: "false"
+    ESIGNET_TLS_VERIFY: "true"
+    API_TLS_VERIFY: "true"
+    SUITE_WAIT_SECONDS: "150"
+
+  ## Secret environment variables (e.g. KEYCLOAK_CLIENT_SECRET). Rendered into
+  ## a Secret and wired up via secretKeyRef -- never landing in a ConfigMap or
+  ## in extraEnvVars above.
+  ##
+  extraEnvVarsSecret:
+    KEYCLOAK_CLIENT_SECRET: ""
+
+  ## Existing ConfigMaps/Secrets in the namespace to pull additional env from
+  ## (envFrom), for parity with cluster-wide config the way helm/esignet does
+  ## (e.g. a shared `esignet-global` configmap).
+  ##
+  extraEnvVarsCM: []
+  extraEnvVarsSecretRefs: []
+
+## Command/args for the container. The image's own ENTRYPOINT is
+## ["./run-all.sh"], so leave `command` empty to keep using it -- args below
+## are appended to it. Templates fill in -c/-s from apitestrig.* above; only
+## override this block if you need something entirely different.
+##
+command: []
+args: []
+
+## ref: http://kubernetes.io/docs/user-guide/compute-resources/
+##
+resources:
+  limits:
+    cpu: "1"
+    memory: 2Gi
+  requests:
+    cpu: 200m
+    memory: 512Mi
+
+## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-container
+## The image creates and runs as apitest:apitest (uid/gid 1001) -- see Dockerfile.
+##
+containerSecurityContext:
+  enabled: false
+  runAsUser: 1001
+  runAsNonRoot: true
+
+## ref: https://kubernetes.io/docs/tasks/configure-pod-container/security-context/#set-the-security-context-for-a-pod
+##
+podSecurityContext:
+  enabled: false
+  fsGroup: 1001
+
+istio:
+  sidecarInject: false
+
+## Deployment pod host aliases
+##
+hostAliases: []
+
+## Node affinity/anti-affinity/selector/tolerations, evaluated as templates.
+##
+podAffinityPreset: ""
+podAntiAffinityPreset: soft
+nodeAffinityPreset:
+  type: ""
+  key: ""
+  values: []
+affinity: {}
+nodeSelector: {}
+tolerations: []
+
+## Pod extra labels/annotations
+##
+podLabels: {}
+podAnnotations: {}
+
+## Specifies whether a ServiceAccount should be created
+##
+serviceAccount:
+  create: true
+  name: ""
+
+## ---------------------------------------------------------------------------
+## Reports
+## ---------------------------------------------------------------------------
+reports:
+  ## REPORT_DIR inside the container. run-all.sh writes the consolidated HTML
+  ## report and every surface's envelope here.
+  mountPath: /app/out
+  persistence:
+    enabled: true
+    storageClass: ""
+    accessModes:
+      - ReadWriteOnce
+    size: 100Mi
+    existingClaim: ""
