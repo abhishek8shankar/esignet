@@ -207,9 +207,42 @@ reports:
   ## report and every surface's envelope here.
   mountPath: /app/out
   persistence:
+    ## When false, the reports volume is an emptyDir instead of a PVC --
+    ## useful when reports.s3.enabled is the only place you want them kept.
     enabled: true
     storageClass: ""
     accessModes:
       - ReadWriteOnce
     size: 100Mi
     existingClaim: ""
+
+  ## Push the consolidated report to S3-compatible storage (AWS S3, MinIO,
+  ## etc.) after each run. Works alongside or instead of the PVC above.
+  ## Implemented as a second container in the same pod: it waits for the
+  ## main container to finish (a completion marker file on the shared
+  ## reports volume, since run-all.sh itself has no S3 awareness), then
+  ## uploads via `mc cp`. Works against MinIO or real AWS S3.
+  s3:
+    enabled: false
+    image:
+      registry: docker.io
+      repository: minio/mc
+      tag: latest
+      pullPolicy: IfNotPresent
+    ## e.g. https://s3.amazonaws.com or http://minio.minio:9000
+    endpoint: ""
+    ## Set true for a self-signed cert or a plain-http endpoint.
+    insecure: false
+    bucket: ""
+    ## Each run lands under <pathPrefix>/<UTC timestamp>/ in the bucket.
+    pathPrefix: "apitestrig"
+    ## Preferred: reference a Secret you manage out-of-band containing
+    ## these two keys.
+    existingSecret: ""
+    existingSecretAccessKeyKey: accessKey
+    existingSecretSecretKeyKey: secretKey
+    ## Convenience/dev fallback: rendered into a Helm-managed Secret. Still
+    ## ends up readable via `helm get values`, so prefer existingSecret for
+    ## anything beyond local testing.
+    accessKey: ""
+    secretKey: ""

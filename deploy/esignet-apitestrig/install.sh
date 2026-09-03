@@ -82,34 +82,84 @@ function installing_apitestrig() {
   fi
 
   echo ""
-  echo "Where should reports (the consolidated HTML report) be stored?"
-  echo "  1) New PVC, default storage class"
-  echo "  2) New PVC on a specific storage class (e.g. nfs-csi)"
-  echo "  3) Reuse an existing PVC"
-  read -rp "Enter your choice [1-3]: " report_choice
+  read -rp "Do you have S3 (or MinIO) details for storing apitestrig reports? (y/N): " s3_ans
+  s3_ans=$(printf '%s' "$s3_ans" | tr '[:upper:]' '[:lower:]')
 
   REPORT_OPTS=()
-  case "$report_choice" in
-    2)
-      read -rp "Storage class name: " storage_class
-      if [[ -z "$storage_class" ]]; then
-        echo "ERROR: Storage class name is required; EXITING."
-        exit 1
-      fi
-      REPORT_OPTS+=(--set "reports.persistence.storageClass=$storage_class")
-      ;;
-    3)
-      read -rp "Existing PVC name: " existing_claim
-      if [[ -z "$existing_claim" ]]; then
-        echo "ERROR: Existing PVC name is required; EXITING."
-        exit 1
-      fi
-      REPORT_OPTS+=(--set "reports.persistence.existingClaim=$existing_claim")
-      ;;
-    *)
-      : # default storage class, new PVC — no extra flags needed
-      ;;
-  esac
+  if [[ "$s3_ans" == "y" ]]; then
+    read -rp "S3 endpoint (e.g. https://s3.amazonaws.com or http://minio.minio:9000): " s3_endpoint
+    if [[ -z "$s3_endpoint" ]]; then
+      echo "ERROR: S3 endpoint is required; EXITING."
+      exit 1
+    fi
+    read -rp "S3 bucket: " s3_bucket
+    if [[ -z "$s3_bucket" ]]; then
+      echo "ERROR: S3 bucket is required; EXITING."
+      exit 1
+    fi
+    read -rp "S3 path prefix [apitestrig/esignet]: " s3_prefix
+    s3_prefix="${s3_prefix:-apitestrig/esignet}"
+    read -rp "S3 access key: " s3_access_key
+    if [[ -z "$s3_access_key" ]]; then
+      echo "ERROR: S3 access key is required; EXITING."
+      exit 1
+    fi
+    read -rsp "S3 secret key (input hidden): " s3_secret_key
+    echo
+    if [[ -z "$s3_secret_key" ]]; then
+      echo "ERROR: S3 secret key is required; EXITING."
+      exit 1
+    fi
+    read -rp "Does the S3/MinIO endpoint use a self-signed cert or plain http? (y/N): " s3_insecure_flag
+    s3_insecure_flag=$(printf '%s' "$s3_insecure_flag" | tr '[:upper:]' '[:lower:]')
+    s3_insecure="false"
+    [[ "$s3_insecure_flag" == "y" ]] && s3_insecure="true"
+
+    REPORT_OPTS+=(
+      --set "reports.s3.enabled=true"
+      --set "reports.s3.endpoint=$s3_endpoint"
+      --set "reports.s3.bucket=$s3_bucket"
+      --set "reports.s3.pathPrefix=$s3_prefix"
+      --set "reports.s3.insecure=$s3_insecure"
+      --set "reports.s3.accessKey=$s3_access_key"
+      --set "reports.s3.secretKey=$s3_secret_key"
+    )
+
+    read -rp "Also keep a local PVC copy of each run's reports? (y/N): " keep_pvc
+    keep_pvc=$(printf '%s' "$keep_pvc" | tr '[:upper:]' '[:lower:]')
+    if [[ "$keep_pvc" != "y" ]]; then
+      REPORT_OPTS+=(--set "reports.persistence.enabled=false")
+    fi
+  else
+    echo ""
+    echo "Where should reports (the consolidated HTML report) be stored?"
+    echo "  1) New PVC, default storage class"
+    echo "  2) New PVC on a specific storage class (e.g. nfs-csi)"
+    echo "  3) Reuse an existing PVC"
+    read -rp "Enter your choice [1-3]: " report_choice
+
+    case "$report_choice" in
+      2)
+        read -rp "Storage class name: " storage_class
+        if [[ -z "$storage_class" ]]; then
+          echo "ERROR: Storage class name is required; EXITING."
+          exit 1
+        fi
+        REPORT_OPTS+=(--set "reports.persistence.storageClass=$storage_class")
+        ;;
+      3)
+        read -rp "Existing PVC name: " existing_claim
+        if [[ -z "$existing_claim" ]]; then
+          echo "ERROR: Existing PVC name is required; EXITING."
+          exit 1
+        fi
+        REPORT_OPTS+=(--set "reports.persistence.existingClaim=$existing_claim")
+        ;;
+      *)
+        : # default storage class, new PVC — no extra flags needed
+        ;;
+    esac
+  fi
 
   echo ""
   echo "Installing $RELEASE_NAME in namespace $NS from $CHART_PATH ..."

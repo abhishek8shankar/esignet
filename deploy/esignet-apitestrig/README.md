@@ -37,8 +37,10 @@ You'll be prompted for:
   `API_TLS_VERIFY` to `false` instead of importing a certificate — the Go
   harness needs no Java keystore/`cacerts` step),
 - the cron schedule,
-- where to persist the consolidated HTML report (new PVC, new PVC on a
-  named storage class, or an existing PVC).
+- where to persist the consolidated HTML report: S3/MinIO (endpoint, bucket,
+  path prefix, credentials — uploaded after each run via a second container
+  that waits for the harness to finish), or if you skip that, a PVC (new,
+  new on a named storage class, or an existing one).
 
 Review `values.yaml` first if you want to change the baked-in config profile
 (`apitestrig.configFile`, default `config.mosip.json`) or default resource

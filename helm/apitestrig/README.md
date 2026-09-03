@@ -68,11 +68,30 @@ instead of `apitestrig.configLocal.data` in values.
 
 ## Reports
 
-`REPORT_DIR` is set to `reports.mountPath` (default `/app/out`) and backed by
-a PVC (`reports.persistence`). Set `reports.persistence.existingClaim` to
-reuse a PVC across runs, or `reports.persistence.enabled: false` plus your own
-`extraDeploy` entry if you'd rather ship reports to S3/object storage — that
-plumbing isn't wired up here, only the volume mount.
+`REPORT_DIR` is set to `reports.mountPath` (default `/app/out`). By default
+it's backed by a PVC (`reports.persistence`) — set
+`reports.persistence.existingClaim` to reuse a PVC across runs.
+
+To also (or instead) push each run's report to S3-compatible storage (AWS S3
+or MinIO), set `reports.s3.enabled: true` plus `reports.s3.endpoint`,
+`.bucket`, and credentials (`reports.s3.accessKey`/`secretKey`, or
+`reports.s3.existingSecret` to supply your own Secret). This adds a second
+`report-uploader` container to the pod that waits for the harness to finish
+(run-all.sh has no S3 awareness of its own, so completion is signalled via a
+marker file on the shared reports volume) and then runs `mc cp` to upload
+everything under `reports.s3.pathPrefix/<UTC timestamp>/` in the bucket. Set
+`reports.persistence.enabled: false` if you don't want a PVC kept around once
+reports are pushed to S3 — the reports volume becomes an `emptyDir` instead.
+
+```bash
+helm upgrade --install apitestrig . \
+  --set reports.s3.enabled=true \
+  --set reports.s3.endpoint=http://minio.minio:9000 \
+  --set reports.s3.bucket=apitestrig-reports \
+  --set reports.s3.accessKey=<key> \
+  --set reports.s3.secretKey=<secret> \
+  --set reports.persistence.enabled=false   # optional: skip the PVC entirely
+```
 
 ## CronJob vs Job
 

@@ -56,6 +56,17 @@ Name of the Secret backing extraEnvVarsSecret.
 {{- end -}}
 
 {{/*
+Name of the Secret backing S3 report-push credentials.
+*/}}
+{{- define "apitestrig.s3SecretName" -}}
+{{- if .Values.reports.s3.existingSecret -}}
+{{ .Values.reports.s3.existingSecret }}
+{{- else -}}
+{{ include "common.names.fullname" . }}-s3
+{{- end -}}
+{{- end -}}
+
+{{/*
 Name of the PVC backing the reports volume.
 */}}
 {{- define "apitestrig.reportsClaimName" -}}
@@ -110,6 +121,22 @@ spec:
       {{- if .Values.containerSecurityContext.enabled }}
       securityContext: {{- omit .Values.containerSecurityContext "enabled" | toYaml | nindent 8 }}
       {{- end }}
+      {{- if .Values.reports.s3.enabled }}
+      {{/*
+      S3 push needs to know when the harness is done (run-all.sh has no S3
+      awareness of its own), so wrap it in a shell that drops a completion
+      marker on the shared reports volume for the uploader container to
+      watch for, then exits with the harness's own exit code.
+      */}}
+      command: ["/bin/bash", "-c"]
+      args:
+        - |
+          set -o pipefail
+          ./run-all.sh -c {{ include "apitestrig.configPath" . | trim | quote }}{{ if .Values.apitestrig.surfaces }} -s {{ .Values.apitestrig.surfaces | quote }}{{ end }}{{ range .Values.args }} {{ . | quote }}{{ end }}
+          rc=$?
+          touch {{ printf "%s/.rig-complete" .Values.reports.mountPath | quote }}
+          exit $rc
+      {{- else }}
       {{- if .Values.command }}
       command: {{- include "common.tplvalues.render" (dict "value" .Values.command "context" $) | nindent 8 }}
       {{- end }}
@@ -123,6 +150,7 @@ spec:
         {{- if .Values.args }}
         {{- include "common.tplvalues.render" (dict "value" .Values.args "context" $) | nindent 8 }}
         {{- end }}
+      {{- end }}
       env:
         - name: REPORT_DIR
           value: {{ .Values.reports.mountPath | quote }}
@@ -168,10 +196,56 @@ spec:
           readOnly: true
         {{- end }}
       resources: {{- toYaml .Values.resources | nindent 8 }}
+    {{- if .Values.reports.s3.enabled }}
+    - name: report-uploader
+      image: {{ include "common.images.image" (dict "imageRoot" .Values.reports.s3.image "global" .Values.global) }}
+      imagePullPolicy: {{ .Values.reports.s3.image.pullPolicy }}
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          set -e
+          export HOME=/tmp
+          until [ -f {{ printf "%s/.rig-complete" .Values.reports.mountPath | quote }} ]; do
+            sleep 5
+          done
+          INSECURE_FLAG=""
+          [ "$S3_INSECURE" = "true" ] && INSECURE_FLAG="--insecure"
+          mc alias set target "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" $INSECURE_FLAG
+          DEST="target/$S3_BUCKET/$S3_PATH_PREFIX/$(date -u +%Y%m%dT%H%M%SZ)"
+          mc cp $INSECURE_FLAG --recursive {{ .Values.reports.mountPath }}/ "$DEST/"
+          echo "Uploaded reports to $DEST"
+      env:
+        - name: S3_ENDPOINT
+          value: {{ .Values.reports.s3.endpoint | quote }}
+        - name: S3_BUCKET
+          value: {{ .Values.reports.s3.bucket | quote }}
+        - name: S3_PATH_PREFIX
+          value: {{ .Values.reports.s3.pathPrefix | quote }}
+        - name: S3_INSECURE
+          value: {{ .Values.reports.s3.insecure | quote }}
+        - name: S3_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "apitestrig.s3SecretName" . }}
+              key: {{ .Values.reports.s3.existingSecretAccessKeyKey }}
+        - name: S3_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: {{ include "apitestrig.s3SecretName" . }}
+              key: {{ .Values.reports.s3.existingSecretSecretKeyKey }}
+      volumeMounts:
+        - name: reports
+          mountPath: {{ .Values.reports.mountPath }}
+          readOnly: true
+    {{- end }}
   volumes:
     - name: reports
+      {{- if .Values.reports.persistence.enabled }}
       persistentVolumeClaim:
         claimName: {{ include "apitestrig.reportsClaimName" . }}
+      {{- else }}
+      emptyDir: {}
+      {{- end }}
     {{- if .Values.apitestrig.configLocal.enabled }}
     - name: config-local
       secret:
