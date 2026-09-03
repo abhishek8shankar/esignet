@@ -44,6 +44,10 @@ You'll be prompted for:
   harness needs no Java keystore/`cacerts` step),
 - the test identity (`INDIVIDUAL_ID`, kept out of ConfigMaps as a Secret
   value since it's PII, and `ID_TYPE`),
+- OTP and PMS settings the mosipid plugin needs and `config.mosip.json`
+  ships blank (`OTP_WS_URL`, `PMS_BASE_URL`, `AUTH_PARTNER_ID`,
+  `AUTH_POLICY_ID` — see the config file's own `_comment` block and
+  [mosip/esignet#2434](https://github.com/mosip/esignet/issues/2434) §4),
 - which surfaces to run (`api,e2e`, or `conformance,api,e2e` plus the
   conformance suite's base URL),
 - the cron schedule,

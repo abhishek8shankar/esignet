@@ -87,6 +87,34 @@ function installing_apitestrig() {
     ID_TYPE=$(printf '%s' "$ID_TYPE" | tr '[:upper:]' '[:lower:]')
   done
 
+  # config.mosip.json ships esignet.otp.source="dynamic" by default, but
+  # otp.ws_url and all of pms.* are blank there and must come from the
+  # environment -- see mosip/esignet#2434 §4 and the config file's own
+  # "_comment" block ("Required there: ... esignet.otp.ws_url, esignet.pms.*").
+  read -rp "OTP mock-SMTP websocket URL (esignet.otp.ws_url, e.g. https://smtp.<env>.mosip.net/): " OTP_WS_URL
+  if [[ -z "$OTP_WS_URL" ]]; then
+    echo "ERROR: OTP websocket URL is required; EXITING."
+    exit 1
+  fi
+
+  read -rp "PMS base URL (esignet.pms.base_url): " PMS_BASE_URL
+  if [[ -z "$PMS_BASE_URL" ]]; then
+    echo "ERROR: PMS base URL is required; EXITING."
+    exit 1
+  fi
+
+  read -rp "PMS auth partner ID (esignet.pms.auth_partner_id): " AUTH_PARTNER_ID
+  if [[ -z "$AUTH_PARTNER_ID" ]]; then
+    echo "ERROR: PMS auth partner ID is required; EXITING."
+    exit 1
+  fi
+
+  read -rp "PMS policy ID (esignet.pms.policy_id): " AUTH_POLICY_ID
+  if [[ -z "$AUTH_POLICY_ID" ]]; then
+    echo "ERROR: PMS policy ID is required; EXITING."
+    exit 1
+  fi
+
   echo ""
   echo "Which surfaces should run?"
   echo "  1) api,e2e             - no OpenID Conformance Suite required"
@@ -207,6 +235,10 @@ function installing_apitestrig() {
     --set apitestrig.extraEnvVars.API_TLS_VERIFY="$API_TLS_VERIFY" \
     --set apitestrig.extraEnvVars.CONFORMANCE_BASE_URL="$CONFORMANCE_BASE_URL" \
     --set apitestrig.extraEnvVars.ID_TYPE="$ID_TYPE" \
+    --set apitestrig.extraEnvVars.OTP_WS_URL="$OTP_WS_URL" \
+    --set apitestrig.extraEnvVars.PMS_BASE_URL="$PMS_BASE_URL" \
+    --set apitestrig.extraEnvVars.AUTH_PARTNER_ID="$AUTH_PARTNER_ID" \
+    --set apitestrig.extraEnvVars.AUTH_POLICY_ID="$AUTH_POLICY_ID" \
     --set apitestrig.extraEnvVarsSecret.KEYCLOAK_CLIENT_SECRET="$KEYCLOAK_CLIENT_SECRET" \
     --set apitestrig.extraEnvVarsSecret.INDIVIDUAL_ID="$INDIVIDUAL_ID" \
     "${REPORT_OPTS[@]}"
