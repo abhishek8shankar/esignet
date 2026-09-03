@@ -224,11 +224,10 @@ spec:
           until [ -f {{ printf "%s/.rig-complete" .Values.reports.mountPath | quote }} ]; do
             sleep 5
           done
-          INSECURE_FLAG=""
-          [ "$S3_INSECURE" = "true" ] && INSECURE_FLAG="--insecure"
-          mc alias set target "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY" $INSECURE_FLAG
+          [ "$S3_INSECURE" = "true" ] && export MC_INSECURE=true
+          mc alias set target "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY"
           DEST="target/$S3_BUCKET/$S3_PATH_PREFIX/$(date -u +%Y%m%dT%H%M%SZ)"
-          mc cp $INSECURE_FLAG --recursive {{ .Values.reports.mountPath }}/ "$DEST/"
+          mc cp --recursive {{ .Values.reports.mountPath }}/ "$DEST/"
           echo "Uploaded reports to $DEST"
       env:
         - name: S3_ENDPOINT
