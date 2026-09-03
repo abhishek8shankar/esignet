@@ -200,7 +200,7 @@ function installing_apitestrig() {
     -f values.yaml \
     --set triggerKind=cronjob \
     --set crontime="0 $time * * *" \
-    --set apitestrig.surfaces="$SURFACES" \
+    --set apitestrig.surfaces="${SURFACES//,/\\,}" \
     --set apitestrig.extraEnvVars.MOSIP_ESIGNET_BASE_URL="$MOSIP_ESIGNET_BASE_URL" \
     --set apitestrig.extraEnvVars.KEYCLOAK_TOKEN_URL="$KEYCLOAK_TOKEN_URL" \
     --set apitestrig.extraEnvVars.ESIGNET_TLS_VERIFY="$ESIGNET_TLS_VERIFY" \
