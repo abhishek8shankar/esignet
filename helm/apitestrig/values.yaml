@@ -130,6 +130,79 @@ apitestrig:
       # esignet-fapi2-config.json: |
       #   { ... }
 
+  ## Runs the OpenID Conformance Suite (mongodb + server + nginx) as native
+  ## sidecar containers in THIS pod, so CONFORMANCE_BASE_URL can point at
+  ## https://localhost.emobix.co.uk:8443 (which already resolves to 127.0.0.1
+  ## via public DNS) and just work -- no separate Deployment/Service needed.
+  ##
+  ## Images/env are taken directly from api-test/docker-compose.yml's own
+  ## working local-dev recipe (server + httpd tags travel together).
+  ##
+  ## REQUIRES Kubernetes 1.29+ (native sidecars -- initContainers with
+  ## restartPolicy: Always -- are beta/on-by-default from 1.29; on 1.28 the
+  ## restartPolicy is silently ignored, so mongodb/server/httpd become plain
+  ## init containers that never exit, and the pod just hangs at Init with no
+  ## clear error). Run `kubectl version` and confirm BOTH control plane and
+  ## nodes are 1.29+ before enabling this.
+  ##
+  ## Two details below are ASSUMED, not yet verified against a real cluster:
+  ## the server's internal port (guessed 8080, Spring Boot default) and
+  ## whether the httpd image's baked-in nginx.conf proxies to hostnames
+  ## "server"/"mongodb" (Compose's automatic per-service DNS) -- hostAliases
+  ## in the pod spec maps both to 127.0.0.1 to cover that case, but it's
+  ## inferred from Compose convention, not confirmed against the image
+  ## itself. Test before relying on this in a real run.
+  ##
+  conformanceSuite:
+    enabled: false
+
+    ## Shared between server and httpd images below (they're versioned
+    ## together upstream, same as api-test's own SUITE_IMAGE_TAG).
+    imageTag: release-v5.1.42
+
+    mongodb:
+      image:
+        registry: docker.io
+        repository: mongo
+        tag: "6.0.13"
+        pullPolicy: IfNotPresent
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: 500m
+          memory: 512Mi
+
+    server:
+      image:
+        registry: registry.gitlab.com
+        repository: openid/conformance-suite
+        pullPolicy: IfNotPresent
+        # tag: conformanceSuite.imageTag (above)
+      springProfile: dev
+      resources:
+        requests:
+          cpu: 500m
+          memory: 1Gi
+        limits:
+          cpu: "1"
+          memory: 2Gi
+
+    httpd:
+      image:
+        registry: registry.gitlab.com
+        repository: openid/conformance-suite/nginx
+        pullPolicy: IfNotPresent
+        # tag: conformanceSuite.imageTag (above)
+      resources:
+        requests:
+          cpu: 50m
+          memory: 64Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+
   ## Plain (non-secret) environment variables layered on top of both config
   ## files, mirroring api-test/.env.example. Rendered as literal env values.
   ##

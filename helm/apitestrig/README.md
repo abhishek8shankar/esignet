@@ -112,13 +112,57 @@ e.g. `esignet-config.json`), or fill in `files` for a Helm-managed one:
 kubectl create secret generic esignet-conformance-plan -n esignet \
   --from-file=esignet-config.json=./conformance-suite-private/esignet-config.json \
   --from-file=esignet-fapi2-config.json=./conformance-suite-private/esignet-fapi2-config.json
+```
 
+**`CONFORMANCE_BASE_URL` must match whatever host your plan file's
+`client`/`client2` were registered against in eSignet** (redirect URI
+`<CONFORMANCE_BASE_URL>/test/a/<alias>/callback`) — the harness calls back
+into the suite using that exact URL (`internal/conformance/client.go`'s
+`DeliverCallback`), so changing it means re-registering those clients. If
+your plan was built against the suite's own conventional local address
+(`https://localhost.emobix.co.uk:8443`), keep using that literal value
+rather than pointing at a different Service URL, even once the suite is
+actually running elsewhere — see `apitestrig.conformanceSuite` below for how
+that stays consistent automatically when running the suite in-pod.
+
+## Running the conformance suite itself (`apitestrig.conformanceSuite`)
+
+The `conformance` surface is a *client* — it needs a real OpenID Conformance
+Suite server to talk to; it can't run standalone. `apitestrig.conformanceSuite`
+runs the suite (mongodb + server + nginx) as native sidecar containers in the
+same pod, using the exact images/env from
+[`api-test/docker-compose.yml`](../../api-test/docker-compose.yml)'s own
+local-dev recipe:
+
+```bash
 helm upgrade --install apitestrig . \
   --set apitestrig.surfaces=conformance\,api\,e2e \
   --set apitestrig.conformancePlanConfig.enabled=true \
   --set apitestrig.conformancePlanConfig.existingSecret=esignet-conformance-plan \
-  --set apitestrig.extraEnvVars.CONFORMANCE_BASE_URL=http://openid-conformance-suite.<ns>.svc.cluster.local:8443
+  --set apitestrig.extraEnvVars.CONFORMANCE_BASE_URL=https://localhost.emobix.co.uk:8443 \
+  --set apitestrig.conformanceSuite.enabled=true
 ```
+
+`https://localhost.emobix.co.uk:8443` already resolves to `127.0.0.1` via
+public DNS, and pod containers share loopback — so once the suite sidecars
+are up, that URL just reaches them directly, no separate Service needed and
+no client re-registration required.
+
+**Requires Kubernetes 1.29+.** Native sidecars (`initContainers` with
+`restartPolicy: Always`) are beta/on-by-default from 1.29; on 1.28 the
+`restartPolicy` is silently ignored, so the suite becomes a set of plain init
+containers that never exit — the pod just hangs at `Init` with no clear
+error. Run `kubectl version` (both control plane and nodes) before enabling
+this.
+
+Two details are **assumed, not yet verified against a real cluster**:
+the suite server's internal port (guessed `8080`, Spring Boot's default) and
+whether the nginx image's baked-in config proxies to hostnames
+`server`/`mongodb` (Docker Compose's automatic per-service DNS) — a
+`hostAliases` entry maps both to `127.0.0.1` to cover that, but it's inferred
+from Compose convention, not confirmed against the image itself. If the pod
+hangs at the `conformance-server` init container, check that port first.
+
 
 The `client_id`s inside that plan file must already be pre-registered in
 eSignet as `private_key_jwt`, with a redirect URI of

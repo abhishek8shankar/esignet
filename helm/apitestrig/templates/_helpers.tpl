@@ -113,8 +113,23 @@ spec:
   {{- if .Values.podSecurityContext.enabled }}
   securityContext: {{- omit .Values.podSecurityContext "enabled" | toYaml | nindent 4 }}
   {{- end }}
-  {{- if .Values.hostAliases }}
-  hostAliases: {{- include "common.tplvalues.render" (dict "value" .Values.hostAliases "context" $) | nindent 4 }}
+  {{- if or .Values.hostAliases .Values.apitestrig.conformanceSuite.enabled }}
+  hostAliases:
+    {{- if .Values.apitestrig.conformanceSuite.enabled }}
+    {{/*
+    ASSUMED, NOT YET VERIFIED: the httpd image's baked-in nginx.conf proxies
+    to hostnames "server"/"mongodb" (Compose's automatic per-service DNS)
+    rather than a configurable upstream -- see values.yaml's
+    apitestrig.conformanceSuite comment. Test before relying on this.
+    */}}
+    - ip: 127.0.0.1
+      hostnames:
+        - server
+        - mongodb
+    {{- end }}
+    {{- if .Values.hostAliases }}
+    {{- include "common.tplvalues.render" (dict "value" .Values.hostAliases "context" $) | nindent 4 }}
+    {{- end }}
   {{- end }}
   {{- if .Values.affinity }}
   affinity: {{- include "common.tplvalues.render" (dict "value" .Values.affinity "context" $) | nindent 4 }}
@@ -124,6 +139,67 @@ spec:
   {{- end }}
   {{- if .Values.tolerations }}
   tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.tolerations "context" $) | nindent 4 }}
+  {{- end }}
+  {{- if .Values.apitestrig.conformanceSuite.enabled }}
+  {{/*
+  Native sidecars (restartPolicy: Always) so mongodb/server/httpd run for
+  the pod's whole life without blocking Job completion -- REQUIRES K8s 1.29+,
+  see the values.yaml comment on apitestrig.conformanceSuite. Listed in
+  dependency order (mongodb -> server -> httpd), matching
+  api-test/docker-compose.yml's depends_on chain; each container's
+  readinessProbe gates the start of the next.
+  */}}
+  initContainers:
+    - name: conformance-mongodb
+      image: {{ printf "%s/%s:%s" .Values.apitestrig.conformanceSuite.mongodb.image.registry .Values.apitestrig.conformanceSuite.mongodb.image.repository .Values.apitestrig.conformanceSuite.mongodb.image.tag }}
+      imagePullPolicy: {{ .Values.apitestrig.conformanceSuite.mongodb.image.pullPolicy }}
+      restartPolicy: Always
+      resources: {{- toYaml .Values.apitestrig.conformanceSuite.mongodb.resources | nindent 8 }}
+      readinessProbe:
+        tcpSocket:
+          port: 27017
+        initialDelaySeconds: 2
+        periodSeconds: 3
+
+    - name: conformance-server
+      image: {{ printf "%s/%s:%s" .Values.apitestrig.conformanceSuite.server.image.registry .Values.apitestrig.conformanceSuite.server.image.repository .Values.apitestrig.conformanceSuite.imageTag }}
+      imagePullPolicy: {{ .Values.apitestrig.conformanceSuite.server.image.pullPolicy }}
+      restartPolicy: Always
+      env:
+        - name: BASE_URL
+          value: "https://localhost.emobix.co.uk:8443"
+        - name: MONGODB_HOST
+          value: "127.0.0.1"
+        - name: SPRING_PROFILES_ACTIVE
+          value: {{ .Values.apitestrig.conformanceSuite.server.springProfile | quote }}
+        - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GITLAB_CLIENTID
+          value: "unused"
+        - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GITLAB_CLIENTSECRET
+          value: "unused"
+        - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENTID
+          value: "unused"
+        - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENTSECRET
+          value: "unused"
+      resources: {{- toYaml .Values.apitestrig.conformanceSuite.server.resources | nindent 8 }}
+      # ASSUMED port 8080 (Spring Boot default) -- NOT confirmed against the
+      # image itself. If startup hangs here, this is the first thing to check.
+      readinessProbe:
+        tcpSocket:
+          port: 8080
+        initialDelaySeconds: 15
+        periodSeconds: 5
+        failureThreshold: 24
+
+    - name: conformance-httpd
+      image: {{ printf "%s/%s:%s" .Values.apitestrig.conformanceSuite.httpd.image.registry .Values.apitestrig.conformanceSuite.httpd.image.repository .Values.apitestrig.conformanceSuite.imageTag }}
+      imagePullPolicy: {{ .Values.apitestrig.conformanceSuite.httpd.image.pullPolicy }}
+      restartPolicy: Always
+      resources: {{- toYaml .Values.apitestrig.conformanceSuite.httpd.resources | nindent 8 }}
+      readinessProbe:
+        tcpSocket:
+          port: 8443
+        initialDelaySeconds: 3
+        periodSeconds: 3
   {{- end }}
   containers:
     - name: apitestrig
