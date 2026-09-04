@@ -129,8 +129,8 @@ that stays consistent automatically when running the suite in-pod.
 
 The `conformance` surface is a *client* — it needs a real OpenID Conformance
 Suite server to talk to; it can't run standalone. `apitestrig.conformanceSuite`
-runs the suite (mongodb + server + nginx) as native sidecar containers in the
-same pod, using the exact images/env from
+runs the suite (mongodb + server + nginx) as regular containers in the same
+pod, using the exact images/env from
 [`api-test/docker-compose.yml`](../../api-test/docker-compose.yml)'s own
 local-dev recipe:
 
@@ -144,24 +144,41 @@ helm upgrade --install apitestrig . \
 ```
 
 `https://localhost.emobix.co.uk:8443` already resolves to `127.0.0.1` via
-public DNS, and pod containers share loopback — so once the suite sidecars
-are up, that URL just reaches them directly, no separate Service needed and
-no client re-registration required.
+public DNS, and pod containers share a network namespace regardless of
+container type — so once the suite's containers are up, that URL just
+reaches them directly, no separate Service needed and no client
+re-registration required. No Kubernetes version requirement for this part.
 
-**Requires Kubernetes 1.29+.** Native sidecars (`initContainers` with
-`restartPolicy: Always`) are beta/on-by-default from 1.29; on 1.28 the
-`restartPolicy` is silently ignored, so the suite becomes a set of plain init
-containers that never exit — the pod just hangs at `Init` with no clear
-error. Run `kubectl version` (both control plane and nodes) before enabling
-this.
+**The one real wrinkle**: mongodb/server/httpd are long-running processes
+that never exit on their own, and a Job only completes once *every*
+container in the pod exits — left alone, they'd block every run from ever
+completing. Fixed with `shareProcessNamespace: true` on the pod plus a small
+`conformance-reaper` container that waits for the same completion marker
+`report-uploader` already watches for, then kills the suite's processes by
+name (`mongod`, `java`, `nginx`) so their containers exit and the Job can
+finish — a well-established pattern from before native sidecars existed
+(K8s 1.28), and it works on any Kubernetes version. Note `shareProcessNamespace`
+means every container in this pod can see and signal every other container's
+processes — acceptable here since this pod only ever runs images this chart
+already controls, but worth knowing if you're auditing it.
 
-Two details are **assumed, not yet verified against a real cluster**:
-the suite server's internal port (guessed `8080`, Spring Boot's default) and
-whether the nginx image's baked-in config proxies to hostnames
-`server`/`mongodb` (Docker Compose's automatic per-service DNS) — a
-`hostAliases` entry maps both to `127.0.0.1` to cover that, but it's inferred
-from Compose convention, not confirmed against the image itself. If the pod
-hangs at the `conformance-server` init container, check that port first.
+Nothing here enforces startup ordering (mongo ready before server, server
+before httpd) the way native sidecars would — this relies on the same
+"loose" ordering `api-test/docker-compose.yml`'s own `depends_on` (without
+healthcheck conditions) already relies on: Spring Boot retries its Mongo
+connection on startup, and the harness's own `SUITE_WAIT_SECONDS` retries
+reaching the suite through httpd.
+
+Three details are **assumed, not yet verified against a real cluster**:
+the suite server's internal port (not actually used by anything in this
+design, but worth knowing if you need to debug it directly), whether the
+nginx image's baked-in config proxies to hostnames `server`/`mongodb`
+(Docker Compose's automatic per-service DNS) — a `hostAliases` entry maps
+both to `127.0.0.1` to cover that, but it's inferred from Compose
+convention, not confirmed against the image itself — and whether `mongod`/
+`java`/`nginx` are actually the process names these images report (standard
+for these kinds of images, but not confirmed). If reaping doesn't work,
+`apitestrig.conformanceSuite.reaper.processNames` is where to fix it.
 
 
 The `client_id`s inside that plan file must already be pre-registered in

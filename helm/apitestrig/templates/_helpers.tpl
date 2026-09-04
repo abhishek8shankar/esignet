@@ -108,6 +108,9 @@ metadata:
     {{- end }}
 spec:
   restartPolicy: Never
+  {{- if .Values.apitestrig.conformanceSuite.enabled }}
+  shareProcessNamespace: true
+  {{- end }}
   serviceAccountName: {{ include "apitestrig.serviceAccountName" . }}
   {{- include "apitestrig.imagePullSecrets" . | nindent 2 }}
   {{- if .Values.podSecurityContext.enabled }}
@@ -140,31 +143,25 @@ spec:
   {{- if .Values.tolerations }}
   tolerations: {{- include "common.tplvalues.render" (dict "value" .Values.tolerations "context" $) | nindent 4 }}
   {{- end }}
-  {{- if .Values.apitestrig.conformanceSuite.enabled }}
-  {{/*
-  Native sidecars (restartPolicy: Always) so mongodb/server/httpd run for
-  the pod's whole life without blocking Job completion -- REQUIRES K8s 1.29+,
-  see the values.yaml comment on apitestrig.conformanceSuite. Listed in
-  dependency order (mongodb -> server -> httpd), matching
-  api-test/docker-compose.yml's depends_on chain; each container's
-  readinessProbe gates the start of the next.
-  */}}
-  initContainers:
+  containers:
+    {{- if .Values.apitestrig.conformanceSuite.enabled }}
+    {{/*
+    Regular containers, not initContainers -- no K8s version requirement,
+    but nothing here enforces startup ordering the way native sidecars
+    would. Each of these apps is expected to retry its own dependency
+    connections on startup (Spring Boot retries Mongo; the harness's own
+    SUITE_WAIT_SECONDS already retries reaching the suite through httpd) --
+    the same "loose" ordering api-test/docker-compose.yml itself relies on
+    via depends_on without healthcheck conditions.
+    */}}
     - name: conformance-mongodb
       image: {{ printf "%s/%s:%s" .Values.apitestrig.conformanceSuite.mongodb.image.registry .Values.apitestrig.conformanceSuite.mongodb.image.repository .Values.apitestrig.conformanceSuite.mongodb.image.tag }}
       imagePullPolicy: {{ .Values.apitestrig.conformanceSuite.mongodb.image.pullPolicy }}
-      restartPolicy: Always
       resources: {{- toYaml .Values.apitestrig.conformanceSuite.mongodb.resources | nindent 8 }}
-      readinessProbe:
-        tcpSocket:
-          port: 27017
-        initialDelaySeconds: 2
-        periodSeconds: 3
 
     - name: conformance-server
       image: {{ printf "%s/%s:%s" .Values.apitestrig.conformanceSuite.server.image.registry .Values.apitestrig.conformanceSuite.server.image.repository .Values.apitestrig.conformanceSuite.imageTag }}
       imagePullPolicy: {{ .Values.apitestrig.conformanceSuite.server.image.pullPolicy }}
-      restartPolicy: Always
       env:
         - name: BASE_URL
           value: "https://localhost.emobix.co.uk:8443"
@@ -181,27 +178,47 @@ spec:
         - name: SPRING_SECURITY_OAUTH2_CLIENT_REGISTRATION_GOOGLE_CLIENTSECRET
           value: "unused"
       resources: {{- toYaml .Values.apitestrig.conformanceSuite.server.resources | nindent 8 }}
-      # ASSUMED port 8080 (Spring Boot default) -- NOT confirmed against the
-      # image itself. If startup hangs here, this is the first thing to check.
-      readinessProbe:
-        tcpSocket:
-          port: 8080
-        initialDelaySeconds: 15
-        periodSeconds: 5
-        failureThreshold: 24
 
     - name: conformance-httpd
       image: {{ printf "%s/%s:%s" .Values.apitestrig.conformanceSuite.httpd.image.registry .Values.apitestrig.conformanceSuite.httpd.image.repository .Values.apitestrig.conformanceSuite.imageTag }}
       imagePullPolicy: {{ .Values.apitestrig.conformanceSuite.httpd.image.pullPolicy }}
-      restartPolicy: Always
       resources: {{- toYaml .Values.apitestrig.conformanceSuite.httpd.resources | nindent 8 }}
-      readinessProbe:
-        tcpSocket:
-          port: 8443
-        initialDelaySeconds: 3
-        periodSeconds: 3
-  {{- end }}
-  containers:
+
+    {{/*
+    Waits for the same completion marker report-uploader watches for, then
+    kills the suite's processes by name (needs shareProcessNamespace: true,
+    set above, to see PIDs across containers) so mongodb/server/httpd exit
+    and the Job can complete -- they never exit on their own otherwise.
+    */}}
+    - name: conformance-reaper
+      image: {{ printf "%s/%s:%s" .Values.apitestrig.conformanceSuite.reaper.image.registry .Values.apitestrig.conformanceSuite.reaper.image.repository .Values.apitestrig.conformanceSuite.reaper.image.tag }}
+      imagePullPolicy: {{ .Values.apitestrig.conformanceSuite.reaper.image.pullPolicy }}
+      command: ["/bin/sh", "-c"]
+      args:
+        - |
+          until [ -f {{ printf "%s/.rig-complete" .Values.reports.mountPath | quote }} ]; do
+            sleep 5
+          done
+          # Give report-uploader a moment to finish reading the volume first.
+          sleep 5
+          # Reads /proc/<pid>/comm directly rather than parsing `ps` output --
+          # a kernel feature, not a ps feature, so it works regardless of
+          # which ps applet variant this busybox build shipped with.
+          for pid_dir in /proc/[0-9]*; do
+            pid=${pid_dir#/proc/}
+            comm=$(cat "$pid_dir/comm" 2>/dev/null) || continue
+            for name in {{ .Values.apitestrig.conformanceSuite.reaper.processNames | join " " }}; do
+              if [ "$comm" = "$name" ]; then
+                kill "$pid" 2>/dev/null
+              fi
+            done
+          done
+          exit 0
+      volumeMounts:
+        - name: reports
+          mountPath: {{ .Values.reports.mountPath }}
+          readOnly: true
+    {{- end }}
     - name: apitestrig
       image: {{ include "apitestrig.image" . }}
       imagePullPolicy: {{ .Values.image.pullPolicy }}

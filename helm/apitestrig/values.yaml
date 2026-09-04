@@ -130,28 +130,41 @@ apitestrig:
       # esignet-fapi2-config.json: |
       #   { ... }
 
-  ## Runs the OpenID Conformance Suite (mongodb + server + nginx) as native
-  ## sidecar containers in THIS pod, so CONFORMANCE_BASE_URL can point at
+  ## Runs the OpenID Conformance Suite (mongodb + server + nginx) as regular
+  ## containers in THIS pod, so CONFORMANCE_BASE_URL can point at
   ## https://localhost.emobix.co.uk:8443 (which already resolves to 127.0.0.1
   ## via public DNS) and just work -- no separate Deployment/Service needed.
+  ## Pod containers share a network namespace regardless of container type,
+  ## so this DNS fix needs nothing beyond that -- no K8s version requirement.
   ##
   ## Images/env are taken directly from api-test/docker-compose.yml's own
   ## working local-dev recipe (server + httpd tags travel together).
   ##
-  ## REQUIRES Kubernetes 1.29+ (native sidecars -- initContainers with
-  ## restartPolicy: Always -- are beta/on-by-default from 1.29; on 1.28 the
-  ## restartPolicy is silently ignored, so mongodb/server/httpd become plain
-  ## init containers that never exit, and the pod just hangs at Init with no
-  ## clear error). Run `kubectl version` and confirm BOTH control plane and
-  ## nodes are 1.29+ before enabling this.
+  ## The one real wrinkle: mongodb/server/httpd are long-running processes
+  ## that never exit on their own, and a Job only completes once EVERY
+  ## container in the pod exits -- so left alone, they'd block every run
+  ## from ever completing. Fixed with shareProcessNamespace: true plus a
+  ## small "conformance-reaper" container that waits for the same
+  ## completion marker report-uploader already watches for
+  ## (reports.mountPath/.rig-complete), then kills the suite's processes by
+  ## name so their containers exit and the Job can finish. This is a
+  ## well-established pattern from before native sidecars existed, and
+  ## works on any Kubernetes version.
   ##
-  ## Two details below are ASSUMED, not yet verified against a real cluster:
-  ## the server's internal port (guessed 8080, Spring Boot default) and
-  ## whether the httpd image's baked-in nginx.conf proxies to hostnames
-  ## "server"/"mongodb" (Compose's automatic per-service DNS) -- hostAliases
-  ## in the pod spec maps both to 127.0.0.1 to cover that case, but it's
-  ## inferred from Compose convention, not confirmed against the image
-  ## itself. Test before relying on this in a real run.
+  ## shareProcessNamespace does mean every container in this pod can see and
+  ## signal every other container's processes -- acceptable here since this
+  ## pod is a single-purpose, ephemeral test rig running only images this
+  ## chart already controls, but worth knowing if you're auditing it.
+  ##
+  ## Three details below are ASSUMED, not yet verified against a real
+  ## cluster: the server's internal port (guessed 8080, Spring Boot
+  ## default), whether the httpd image's baked-in nginx.conf proxies to
+  ## hostnames "server"/"mongodb" (Compose's automatic per-service DNS --
+  ## hostAliases in the pod spec maps both to 127.0.0.1 to cover this, but
+  ## it's inferred from Compose convention, not confirmed against the image
+  ## itself), and the suite's/mongo's actual process names as reported by
+  ## `ps` (guessed "java", "mongod", "nginx" -- standard for these images,
+  ## but not confirmed). Test before relying on this in a real run.
   ##
   conformanceSuite:
     enabled: false
@@ -202,6 +215,22 @@ apitestrig:
         limits:
           cpu: 200m
           memory: 128Mi
+
+    ## The small watcher-and-killer container. busybox because it reliably
+    ## ships `ps` and `kill` applets without needing anything installed.
+    reaper:
+      image:
+        registry: docker.io
+        repository: busybox
+        tag: "1.36"
+        pullPolicy: IfNotPresent
+      ## Process names to kill (matched against `ps -A -o comm`) once the
+      ## completion marker appears. Adjust here if these images report
+      ## different process names in practice.
+      processNames:
+        - mongod
+        - java
+        - nginx
 
   ## Plain (non-secret) environment variables layered on top of both config
   ## files, mirroring api-test/.env.example. Rendered as literal env values.
