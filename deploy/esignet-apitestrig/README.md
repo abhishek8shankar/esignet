@@ -52,7 +52,10 @@ You'll be prompted for:
   block and [mosip/esignet#2434](https://github.com/mosip/esignet/issues/2434)
   §4),
 - which surfaces to run (`api,e2e`, or `conformance,api,e2e` plus the
-  conformance suite's base URL),
+  conformance suite's base URL) — choosing `conformance` also asks whether to
+  run the suite in-pod (`apitestrig.conformanceSuite.enabled`, see the
+  chart's README) and whether you already have the plan config Secret
+  (`apitestrig.conformancePlanConfig.enabled`/`existingSecret`),
 - the cron schedule,
 - where to persist the consolidated HTML report: S3/MinIO (endpoint, bucket,
   path prefix, credentials — uploaded after each run via a second container

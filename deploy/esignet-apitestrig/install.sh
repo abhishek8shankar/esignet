@@ -137,17 +137,48 @@ function installing_apitestrig() {
   echo ""
   echo "Which surfaces should run?"
   echo "  1) api,e2e             - no OpenID Conformance Suite required"
-  echo "  2) conformance,api,e2e - requires the Conformance Suite already running in-cluster"
+  echo "  2) conformance,api,e2e - requires the OpenID Conformance Suite"
   read -rp "Enter your choice [1-2]: " SURFACE_CHOICE
 
   CONFORMANCE_BASE_URL=""
+  CONFORMANCE_OPTS=()
   case "$SURFACE_CHOICE" in
     2)
       SURFACES="conformance,api,e2e"
-      read -rp "Conformance suite base URL (e.g. http://openid-conformance-suite.<ns>.svc.cluster.local:8443): " CONFORMANCE_BASE_URL
+
+      read -rp "Run the OpenID Conformance Suite in-pod alongside this test rig (mongodb+server+nginx as extra containers, see helm/apitestrig README)? (y/N): " run_suite_inpod
+      run_suite_inpod=$(printf '%s' "$run_suite_inpod" | tr '[:upper:]' '[:lower:]')
+
+      DEFAULT_CONFORMANCE_URL=""
+      if [[ "$run_suite_inpod" == "y" ]]; then
+        CONFORMANCE_OPTS+=(--set "apitestrig.conformanceSuite.enabled=true")
+        DEFAULT_CONFORMANCE_URL="https://localhost.emobix.co.uk:8443"
+        echo "Note: the suite advertises itself using this exact URL when building"
+        echo "callback URLs -- it must match what your plan file's client_ids were"
+        echo "registered against in eSignet. Only change the default below if you know"
+        echo "that's actually different for your plan."
+      fi
+
+      read -rp "Conformance suite base URL${DEFAULT_CONFORMANCE_URL:+ [$DEFAULT_CONFORMANCE_URL]}: " CONFORMANCE_BASE_URL
+      CONFORMANCE_BASE_URL="${CONFORMANCE_BASE_URL:-$DEFAULT_CONFORMANCE_URL}"
       if [[ -z "$CONFORMANCE_BASE_URL" ]]; then
         echo "ERROR: Conformance suite base URL is required for this surface selection; EXITING."
         exit 1
+      fi
+
+      read -rp "Do you already have the conformance plan config Secret created (see helm/apitestrig README, 'Conformance plan config')? (y/N): " has_plan_secret
+      has_plan_secret=$(printf '%s' "$has_plan_secret" | tr '[:upper:]' '[:lower:]')
+      if [[ "$has_plan_secret" == "y" ]]; then
+        read -rp "Secret name [esignet-conformance-plan]: " plan_secret_name
+        plan_secret_name="${plan_secret_name:-esignet-conformance-plan}"
+        CONFORMANCE_OPTS+=(
+          --set "apitestrig.conformancePlanConfig.enabled=true"
+          --set "apitestrig.conformancePlanConfig.existingSecret=$plan_secret_name"
+        )
+      else
+        echo "WARNING: without the plan config Secret, the conformance surface will fail"
+        echo "with a 'config_file ... not readable' error. Create it per the README, then"
+        echo "re-run this script."
       fi
       ;;
     *)
@@ -262,6 +293,7 @@ function installing_apitestrig() {
     --set apitestrig.extraEnvVarsSecret.KEYCLOAK_CLIENT_SECRET="$KEYCLOAK_CLIENT_SECRET" \
     --set apitestrig.extraEnvVarsSecret.INDIVIDUAL_ID="$INDIVIDUAL_ID" \
     "${EXTRA_OPTS[@]}" \
+    "${CONFORMANCE_OPTS[@]}" \
     "${REPORT_OPTS[@]}"
 
   echo "Installed $RELEASE_NAME."
