@@ -1,0 +1,118 @@
+# values.yaml for the eSignet UI testrig (uitest-esignet).
+#
+# This deliberately does NOT reuse deploy/esignet-apitestrig/values.yaml as-is:
+# the uitest-esignet image is a different container contract from
+# apitest-esignet (Chromium + Xvfb in the same pod, a much bigger memory/CPU
+# footprint, a /dev/shm requirement, and reports under /home/mosip/test-output
+# instead of /home/mosip/testrig/report). See mosip/esignet#2544 §3 for the
+# full gap analysis against the apitestrig chart this reuses.
+#
+# NOTE: as of this branch there is no dedicated "uitestrig" chart published -
+# the chart-side changes needed to fully honour dshmSizeLimit/mountDir below
+# (mosip/mosip-functional-tests -> helm/apitestrig, or a new helm/uitestrig)
+# are tracked by #2544 and are NOT part of this repo. Values here are named to
+# match the existing apitestrig chart's conventions so they take effect as
+# soon as that chart-side work lands; until then some of them are no-ops.
+
+modules:
+  esignetUi:
+    enabled: true
+    image:
+      repository: mosipdev/uitest-esignet
+      tag: develop-go
+      pullPolicy: Always
+
+extraEnvVarsCM:
+  - esignet-global
+  - s3
+  - keycloak-host
+  - uitestrig
+
+extraEnvVarsSecret:
+  - uitestrig-esignet-uitestrig
+  - s3-esignet-uitestrig
+  - keycloak-client-secrets
+
+# Headless Chromium + JVM in the same pod needs far more headroom than the
+# apitestrig default of 300m/500Mi (#2544 §3.2).
+resources:
+  limits:
+    cpu: "2"
+    memory: 4Gi
+  requests:
+    cpu: 500m
+    memory: 2Gi
+
+# Chrome's /dev/shm usage crashes/hangs on the container default of 64Mi
+# (#2544 §3.3, §5a). Chart support for mounting this is part of #2544.
+dshm:
+  enabled: true
+  sizeLimit: 2Gi
+
+uitestrig:
+  # Reports land in /home/mosip/test-output (Extent HTML) and
+  # /home/mosip/screenshots (failure screenshots), NOT
+  # /home/mosip/testrig/report like the API rig (#2544 §3.4, §5b).
+  volumes:
+    reports:
+      mountDir: /home/mosip/test-output
+      screenshotsMountDir: /home/mosip/screenshots
+
+  configmaps:
+    uitestrig:
+      # eSignet-go has no Spring actuator, so plugin auto-detection always
+      # falls back to mosipid unless this is set explicitly (#2544 §3.7).
+      pluginToExecute: "mock"
+
+      # In-cluster Chrome, not BrowserStack. The JAR default is
+      # runOnBrowserStack=true, so this MUST be set for a scheduled
+      # in-cluster CronJob run (#2544 §3.6, §6ii).
+      runOnBrowserStack: "false"
+
+      runLanguage: "eng"
+
+      # Relying-party (health-services) origin. OIDC redirect_uris must be
+      # exactly baseurl + "userprofile".
+      baseurl: ""
+      localeUrl: ""
+      # Do NOT let this be derived from ENV_ENDPOINT (api-internal host) -
+      # that mapping is wrong for eSignet-go (#2544 §4).
+      eSignetbaseurl: ""
+
+      # Consent DB - UI checks only read esignetDbHost/esignetDbPassword;
+      # name/user/schema/port ship in the JAR. Do not add db-su-user or
+      # postgres-password aliases here, they are not read by the UI harness
+      # (#2544 §3.8).
+      esignetDbHost: ""
+      esignetDbPort: "5432"
+
+      # Kept as ConfigMap data (not a Job env: name) because it contains a
+      # hyphen, which is not a valid k8s env var name (#2544 §3.9).
+      keycloak-external-url: ""
+
+      push-reports-to-s3: "no"
+
+    s3:
+      s3-host: ""
+      s3-region: ""
+      s3-account: ""
+
+  secrets:
+    uitestrig:
+      esignetDbPassword: ""
+      keycloak_Password: ""
+      mosip_testrig_client_secret: ""
+      oidcClientId: ""
+    s3:
+      s3-user-key: ""
+      s3-user-secret: ""
+
+# NOTE: Do NOT set the following here, even to an empty string - they already
+# ship correct defaults in the uitest-esignet JAR and an empty ConfigMap/
+# Secret value overrides (wipes) the JAR default rather than being ignored
+# (#2544 §2, §4 "silent trap"):
+#   esignetActuatorEnabled, captchaEnabled, runPrerequisiteSuite,
+#   idTokenExpirySeconds, esignetWellKnownEndPoint, esignetAuthorizeEndpoint,
+#   esignetParEndpoint, authorizeUrlTemplate, keycloakAuthTokenEndPoint,
+#   keycloak-realm-id, mosip_testrig_client_id, esignetDbName,
+#   esignetDbUsername, esignetDbSchema
