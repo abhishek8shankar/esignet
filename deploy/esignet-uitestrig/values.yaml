@@ -53,11 +53,12 @@ extraEnvVarsCM:
   - db
   - uitestrig
 
-# Chart default also includes postgres-postgresql, dropped here: the UI
-# harness never reads the db-su-user/postgres-password aliases that secret
-# backs, so there's no need to mirror it into this namespace.
+# Chart default also includes postgres-postgresql and s3, dropped here:
+# postgres-postgresql backs db-su-user/postgres-password aliases the UI
+# harness never reads, and "s3" as a standalone Secret object doesn't work
+# with this chart (see the secrets.yaml bug note under uitestrig.secrets
+# below) - its keys live in the "uitestrig" secret instead.
 extraEnvVarsSecret:
-  - s3
   - keycloak-client-secrets
   - uitestrig
 
@@ -113,10 +114,19 @@ uitestrig:
       push-reports-to-s3: "no"
 
   secrets:
-    s3:
+    # NOTE: the chart's templates/secrets.yaml is missing the `---` document
+    # separator that templates/configmaps.yaml has between loop iterations
+    # (confirmed against the chart source, mosip/mosip-functional-tests,
+    # helm/uitestrig). With two secret names defined here, the rendered YAML
+    # becomes one malformed document with duplicate apiVersion/kind/metadata/
+    # data keys - the last one silently wins and the first Secret is dropped
+    # entirely (this is why a separate "s3" secret wasn't being created).
+    # Workaround: keep everything in ONE secret object ("uitestrig" below)
+    # instead of splitting s3 credentials into their own "s3" secret. This is
+    # an upstream chart bug, not something fixable from this repo.
+    uitestrig:
       s3-user-key: ""
       s3-user-secret: ""
-    uitestrig:
       esignetDbPassword: ""
       keycloak_Password: ""
       mosip_testrig_client_secret: ""

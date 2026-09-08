@@ -84,3 +84,13 @@ The `uitestrig` chart's `cronjob.yaml` doesn't set container `resources` (CPU/me
 currently - there's no lever in this chart to give the Chromium+JVM pod more headroom than whatever
 the cluster's namespace defaults provide. If pods get OOMKilled, that needs a chart-side fix in
 `mosip-functional-tests`, not something `values.yaml` here can work around.
+
+**Secrets bug**: `templates/secrets.yaml` is missing the `---` document separator that
+`templates/configmaps.yaml` has between loop iterations. With more than one entry under
+`uitestrig.secrets`, the rendered manifest becomes a single malformed YAML document with duplicate
+`apiVersion`/`kind`/`metadata`/`data` keys - the last one silently wins and every earlier Secret in
+the loop is dropped without any error (this is why a separate `s3` Secret wasn't actually being
+created). The workaround here is to keep every secret key under a single `uitestrig.secrets.uitestrig`
+entry instead of splitting them into their own named Secret objects. This is an upstream chart bug in
+`mosip/mosip-functional-tests`, not something fixable from this repo - worth reporting/fixing there
+directly if it's still unpatched.

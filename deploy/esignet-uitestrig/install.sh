@@ -136,7 +136,7 @@ function installing_uitestrig() {
       echo "S3 secret key not provided; EXITING;"
       exit 1;
     fi
-    S3_OPTION="--set uitestrig.configmaps.s3.s3-host=$s3_host --set uitestrig.secrets.s3.s3-user-key=$s3_user_key --set uitestrig.secrets.s3.s3-user-secret=$s3_user_secret --set uitestrig.configmaps.s3.s3-region=$s3_region"
+    S3_OPTION="--set uitestrig.configmaps.s3.s3-host=$s3_host --set uitestrig.secrets.uitestrig.s3-user-key=$s3_user_key --set uitestrig.secrets.uitestrig.s3-user-secret=$s3_user_secret --set uitestrig.configmaps.s3.s3-region=$s3_region"
     push_reports_to_s3="yes"
   else
     push_reports_to_s3="no"
