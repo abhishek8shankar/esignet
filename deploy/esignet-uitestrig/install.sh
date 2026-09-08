@@ -172,7 +172,7 @@ function installing_uitestrig() {
   read -p "Is values.yaml for uitestrig reviewed and set correctly as part of pre-requisites? (Y/n) : " yn;
   if [[ $yn = "Y" ]] || [[ $yn = "y" ]] ; then
     echo Installing esignet uitestrig
-    helm -n $NS install esignet-uitestrig mosip/apitestrig \
+    helm -n $NS install esignet-uitestrig mosip/uitestrig \
     --set crontime="0 $time * * *" \
     -f values.yaml \
     --version $CHART_VERSION \

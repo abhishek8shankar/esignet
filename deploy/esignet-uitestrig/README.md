@@ -52,8 +52,8 @@ sudo systemctl restart nfs-kernel-server
 * Once the nfs-kernel-server is up, log out from the NFS server and continue the deployment from your local machine.
 
 * Review `values.yaml`. In particular confirm the `uitest-esignet` image repository/tag, and that
-  the `esignetUi`/`uitestrig` keys below line up with whatever the chart currently exposes (see
-  **Known gap** below).
+  the `modules.esignet`/`uitestrig` keys below line up with whatever the `mosip/uitestrig` chart
+  currently exposes (see **Known gap** below).
 
 * run `./install.sh`.
 ```
@@ -103,11 +103,14 @@ sudo systemctl restart nfs-kernel-server
 
 ## Known gap
 
-`mosip/apitestrig` (from [`mosip/mosip-functional-tests`](https://github.com/mosip/mosip-functional-tests/tree/master/helm/apitestrig))
-is written around the API container contract. This module's `values.yaml`/`install.sh` set the keys
-the UI harness needs (own image, Chromium resources, `/dev/shm`, `/home/mosip/test-output` mount) using
-names that mirror the chart's existing conventions, but the chart itself may still need updating to
-actually honour a `/dev/shm` mount and a per-module report `mountDir` before this is fully wired -
-see [mosip/esignet#2544](https://github.com/mosip/esignet/issues/2544) §3 and §6(iii) for the decision
-DevOps needs to make (a dedicated `uitestrig` chart vs. a second module in `apitestrig`) and track that
-chart-side work separately from this repo.
+This module installs via a dedicated `mosip/uitestrig` chart rather than reusing `mosip/apitestrig`
+(from [`mosip/mosip-functional-tests`](https://github.com/mosip/mosip-functional-tests)), per the
+decision in [mosip/esignet#2544](https://github.com/mosip/esignet/issues/2544) §6(iii): API and UI
+runs get their own chart/release so neither shares image, command, or resources with the other.
+
+`values.yaml`/`install.sh` here set the keys the UI harness needs (own image, Chromium resources,
+`/dev/shm`, `/home/mosip/test-output` mount) using names that mirror `apitestrig`'s existing
+conventions, on the assumption `uitestrig` is built as a sibling chart of the same shape. Confirm the
+actual key names against the published `mosip/uitestrig` chart once it exists, and that it actually
+honours the `/dev/shm` mount and the `/home/mosip/test-output` report `mountDir` - the chart-side work
+itself (in `mosip-functional-tests`) is tracked by #2544 and is not part of this repo.

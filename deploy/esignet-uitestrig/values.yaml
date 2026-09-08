@@ -1,21 +1,18 @@
-# values.yaml for the eSignet UI testrig (uitest-esignet).
+# values.yaml for the eSignet UI testrig (uitest-esignet), installed via the
+# dedicated `mosip/uitestrig` chart (NOT `mosip/apitestrig` - the two images
+# have different container contracts: Chromium + Xvfb in the same pod, a much
+# bigger memory/CPU footprint, a /dev/shm requirement, and reports under
+# /home/mosip/test-output instead of /home/mosip/testrig/report). See
+# mosip/esignet#2544 §3 for the full gap analysis.
 #
-# This deliberately does NOT reuse deploy/esignet-apitestrig/values.yaml as-is:
-# the uitest-esignet image is a different container contract from
-# apitest-esignet (Chromium + Xvfb in the same pod, a much bigger memory/CPU
-# footprint, a /dev/shm requirement, and reports under /home/mosip/test-output
-# instead of /home/mosip/testrig/report). See mosip/esignet#2544 §3 for the
-# full gap analysis against the apitestrig chart this reuses.
-#
-# NOTE: as of this branch there is no dedicated "uitestrig" chart published -
-# the chart-side changes needed to fully honour dshmSizeLimit/mountDir below
-# (mosip/mosip-functional-tests -> helm/apitestrig, or a new helm/uitestrig)
-# are tracked by #2544 and are NOT part of this repo. Values here are named to
-# match the existing apitestrig chart's conventions so they take effect as
-# soon as that chart-side work lands; until then some of them are no-ops.
+# NOTE: this assumes `mosip/uitestrig` exposes the same shape of values as
+# `mosip/apitestrig` (modules.esignet.image, extraEnvVarsCM/Secret,
+# resources, <chartname>.configmaps/secrets/volumes) since it's the same
+# family of generic testrig chart. Confirm the actual key names once that
+# chart is published/updated - see the "Known gap" note in README.md.
 
 modules:
-  esignetUi:
+  esignet:
     enabled: true
     image:
       repository: mosipdev/uitest-esignet
