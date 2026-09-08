@@ -6,27 +6,48 @@
 # are based on. This installs a SEPARATE release (esignet-uitestrig) from
 # esignet-apitestrig so the two CronJobs never share image/command/resources
 # (#2544 §6iii).
+#
+# uitestrig is installed into its OWN namespace (UITEST_NS below), not the
+# shared "esignet" namespace apitestrig lives in. The generic testrig chart
+# family hardcodes some ConfigMap names (e.g. "db") rather than scoping them
+# per-release, so installing both apitestrig and uitestrig into the same
+# namespace fails with a Helm ownership conflict ("ConfigMap \"db\" ... exists
+# and cannot be imported ... current value is \"esignet-apitestrig\""). A
+# dedicated namespace sidesteps that instead of fighting over ownership of a
+# ConfigMap the apitestrig release already owns.
 
 if [ $# -ge 1 ] ; then
   export KUBECONFIG=$1
 fi
 
-NS=esignet
+SOURCE_NS=esignet
+UITEST_NS=esignet-uitestrig
 CHART_VERSION=0.0.1-develop
 COPY_UTIL=../copy_cm_func.sh
 
-echo Create $NS namespace
-kubectl create ns $NS
+echo Create $UITEST_NS namespace
+kubectl create ns $UITEST_NS
 
 function installing_uitestrig() {
   helm repo update
 
-  echo "Delete s3, & uitestrig configmap if exists"
-  kubectl -n $NS delete --ignore-not-found=true configmap s3-esignet-uitestrig
-  kubectl -n $NS delete --ignore-not-found=true configmap uitestrig
+  echo "Mirroring shared ConfigMaps/Secrets from $SOURCE_NS into $UITEST_NS"
+  # These are read directly by the job via extraEnvVarsCM/extraEnvVarsSecret
+  # in values.yaml, so they must exist in the same namespace as the job -
+  # they are NOT copied into apitestrig's namespace, so there's no ownership
+  # clash with the apitestrig release.
+  $COPY_UTIL configmap esignet-global $SOURCE_NS $UITEST_NS
+  kubectl -n $SOURCE_NS get configmap keycloak-host >/dev/null 2>&1 && \
+    $COPY_UTIL configmap keycloak-host $SOURCE_NS $UITEST_NS
+  kubectl -n $SOURCE_NS get secret keycloak-client-secrets >/dev/null 2>&1 && \
+    $COPY_UTIL secret keycloak-client-secrets $SOURCE_NS $UITEST_NS
 
-  API_INTERNAL_HOST=$( kubectl -n esignet get cm esignet-global -o json | jq -r '.data."mosip-api-internal-host"' )
-  ENV_USER=$( kubectl -n esignet get cm esignet-global -o json | jq -r '.data."mosip-api-internal-host"' | awk -F '.' '/api-internal/{print $1"."$2}')
+  echo "Delete uitestrig-owned s3/uitestrig configmaps in $UITEST_NS if they exist from a previous run"
+  kubectl -n $UITEST_NS delete --ignore-not-found=true configmap s3-esignet-uitestrig
+  kubectl -n $UITEST_NS delete --ignore-not-found=true configmap uitestrig
+
+  API_INTERNAL_HOST=$( kubectl -n $SOURCE_NS get cm esignet-global -o json | jq -r '.data."mosip-api-internal-host"' )
+  ENV_USER=$( kubectl -n $SOURCE_NS get cm esignet-global -o json | jq -r '.data."mosip-api-internal-host"' | awk -F '.' '/api-internal/{print $1"."$2}')
 
   read -p "Please enter the time(hr) to run the cronjob every day (time: 0-23) : " time
   if [ -z "$time" ]; then
@@ -156,7 +177,7 @@ function installing_uitestrig() {
   read -p "Is values.yaml for uitestrig reviewed and set correctly as part of pre-requisites? (Y/n) : " yn;
   if [[ $yn = "Y" ]] || [[ $yn = "y" ]] ; then
     echo Installing esignet uitestrig
-    helm -n $NS install esignet-uitestrig mosip/uitestrig \
+    helm -n $UITEST_NS install esignet-uitestrig mosip/uitestrig \
     --set crontime="0 $time * * *" \
     -f values.yaml \
     --version $CHART_VERSION \
@@ -172,7 +193,7 @@ function installing_uitestrig() {
     --set uitestrig.configmaps.uitestrig.eSignetbaseurl="$esignetbaseurl" \
     --set uitestrig.configmaps.uitestrig.localeUrl="$localeurl" \
     --set uitestrig.configmaps.uitestrig.keycloak-external-url="$keycloakUrl" \
-    --set uitestrig.configmaps.uitestrig.NS="$NS" \
+    --set uitestrig.configmaps.uitestrig.NS="$UITEST_NS" \
     $ENABLE_INSECURE
 
     echo Installed esignet uitestrig.

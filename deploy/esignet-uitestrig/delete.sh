@@ -7,7 +7,7 @@ if [ $# -ge 1 ] ; then
 fi
 
 function deleting_uitestrig() {
-  NS=esignet
+  NS=esignet-uitestrig
   while true; do
       read -p "Are you sure you want to delete uitestrig helm charts?(Y/n) " yn
       if [ $yn = "Y" ]

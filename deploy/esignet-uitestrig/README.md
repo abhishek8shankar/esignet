@@ -6,8 +6,13 @@ image `uitest-esignet`) on a schedule via CronJob, or on demand via Rancher/CLI.
 
 This is a **separate** installation from [`esignet-apitestrig`](../esignet-apitestrig), which runs the
 API suite (`apitest-esignet`). The two use different container contracts (see
-[mosip/esignet#2544](https://github.com/mosip/esignet/issues/2544) for the full gap analysis) and are
-kept as separate releases/CronJobs so neither shares image, command, or resources with the other.
+[mosip/esignet#2544](https://github.com/mosip/esignet/issues/2544) for the full gap analysis) and,
+unlike apitestrig, this module installs into its **own namespace** (`esignet-uitestrig`) rather than
+the shared `esignet` namespace. The generic testrig chart family hardcodes some ConfigMap names (e.g.
+`db`) instead of scoping them per-release, so a second release in the same namespace as apitestrig
+fails to install with a Helm ownership error on that ConfigMap. `install.sh` mirrors in the read-only
+ConfigMaps/Secrets (`esignet-global`, `keycloak-host`, `keycloak-client-secrets`) the job needs from
+`esignet` so this stays a one-command install.
 
 Key differences from apitestrig that this module accounts for:
 
@@ -95,11 +100,11 @@ sudo systemctl restart nfs-kernel-server
 * Install `kubectl` on your local machine.
 * Create a new job from the existing CronJob:
   ```
-  kubectl --kubeconfig=<k8s-config-file> -n esignet create job --from=cronjob/<cronjob-name> <job-name>
+  kubectl --kubeconfig=<k8s-config-file> -n esignet-uitestrig create job --from=cronjob/<cronjob-name> <job-name>
   ```
   example:
   ```
-  kubectl --kubeconfig=/home/xxx/Downloads/qa4.config -n esignet create job --from=cronjob/cronjob-uitestrig-esignet cronjob-uitestrig-esignet-manual
+  kubectl --kubeconfig=/home/xxx/Downloads/qa4.config -n esignet-uitestrig create job --from=cronjob/cronjob-uitestrig-esignet cronjob-uitestrig-esignet-manual
   ```
 
 ## Known gap
@@ -115,3 +120,9 @@ conventions, on the assumption `uitestrig` is built as a sibling chart of the sa
 actual key names against the published `mosip/uitestrig` chart once it exists, and that it actually
 honours the `/dev/shm` mount and the `/home/mosip/test-output` report `mountDir` - the chart-side work
 itself (in `mosip-functional-tests`) is tracked by #2544 and is not part of this repo.
+
+Separately, the generic testrig chart family appears to hardcode some ConfigMap names (e.g. `db`)
+rather than scoping them per-release, which breaks a same-namespace install alongside apitestrig with
+a Helm ownership error. `install.sh` works around this by using a dedicated `esignet-uitestrig`
+namespace instead. If a future chart release scopes these names per-release, both releases could move
+back into the shared `esignet` namespace and this script's namespace-mirroring step could be dropped.
