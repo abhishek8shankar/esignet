@@ -18,7 +18,7 @@ Key differences from apitestrig that this module accounts for:
 | `/dev/shm` | not needed | required, `emptyDir` memory volume, 2Gi |
 | Report path | `/home/mosip/testrig/report` | `/home/mosip/test-output` (+ `/home/mosip/screenshots`) |
 | Plugin detection | via actuator | eSignet-go has no actuator - `pluginToExecute=mock` set explicitly |
-| Browser | n/a | in-cluster Chromium (`runOnBrowserStack=false`) or BrowserStack |
+| Browser | n/a | in-cluster Chromium only (`runOnBrowserStack=false`) |
 | DB keys | `db-server`/`db-su-user`/`postgres-password` | `esignetDbHost`/`esignetDbPassword` only |
 
 ## Install
@@ -66,7 +66,8 @@ sudo systemctl restart nfs-kernel-server
   * the Keycloak external URL,
   * whether the cluster has a public domain + valid SSL (selecting `n` mounts a self-signed
     `cacerts` init-container, same pattern as apitestrig),
-  * whether to run Chrome in-cluster (recommended for a scheduled CronJob) or on BrowserStack,
+  * Chrome runs in-cluster only (`runOnBrowserStack=false`, `/dev/shm` mounted) - no BrowserStack
+    prompt or credentials needed,
   * S3 or NFS for report storage.
 
 * If the report is stored in NFS, use `scp` to copy the reports (`/home/mosip/test-output/*.html`,

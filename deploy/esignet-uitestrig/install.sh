@@ -79,25 +79,9 @@ function installing_uitestrig() {
     ENABLE_INSECURE='--set enable_insecure=true';
   fi
 
-  # Browser mode - #2544 §6(ii)
-  BROWSER_OPTION=''
-  valid_browser_inputs=("incluster" "browserstack")
-  browserMode=""
-  while [[ ! " ${valid_browser_inputs[@]} " =~ " ${browserMode} " ]]; do
-    read -p "Run Chrome in-cluster (recommended, no BrowserStack account needed) or on BrowserStack? (incluster/browserstack): " browserMode
-    browserMode=${browserMode,,}
-  done
-  if [[ $browserMode == "browserstack" ]]; then
-    read -p "Please provide BrowserStack username: " bs_user
-    read -p "Please provide BrowserStack access key: " bs_key
-    if [ -z "$bs_user" ] || [ -z "$bs_key" ]; then
-      echo "BrowserStack credentials not provided; EXITING;"
-      exit 1;
-    fi
-    BROWSER_OPTION="--set uitestrig.configmaps.uitestrig.runOnBrowserStack=true --set uitestrig.secrets.uitestrig.browserstack_username=$bs_user --set uitestrig.secrets.uitestrig.browserstack_access_key=$bs_key"
-  else
-    BROWSER_OPTION="--set uitestrig.configmaps.uitestrig.runOnBrowserStack=false --set dshm.enabled=true"
-  fi
+  # In-cluster Chromium always (no BrowserStack path) - #2544 §6(ii).
+  # runOnBrowserStack must be explicitly false since the JAR default is true.
+  BROWSER_OPTION="--set uitestrig.configmaps.uitestrig.runOnBrowserStack=false --set dshm.enabled=true"
 
   # Report storage - #2544 §6(i). The UI harness pushes to S3 in-process
   # (BaseTest.pushReportsToS3), unlike the Go api-test harness.
