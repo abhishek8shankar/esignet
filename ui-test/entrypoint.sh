@@ -1,13 +1,5 @@
 #!/bin/bash
 
-# --- Start Xvfb so headless Chromium has a display to attach to ---
-# DISPLAY is set to :99 in the image, but nothing was starting the X server on
-# it before Chrome launched. Without this, headless Chrome under xvfb crashes
-# or hangs waiting for a display (see mosip/esignet#2544 §2, §3.10).
-Xvfb "$DISPLAY" -screen 0 1920x1080x24 &
-XVFB_PID=$!
-trap 'kill -TERM "$XVFB_PID" 2>/dev/null || true' EXIT
-
 echo "Listing files in /home/mosip/:"
 ls -l /home/mosip/
 

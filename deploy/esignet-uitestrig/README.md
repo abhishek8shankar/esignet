@@ -2,63 +2,37 @@
 
 ## Introduction
 uitestrig runs the eSignet **UI** automation suite (`ui-test/`, Cucumber + TestNG + Selenium,
-image `uitest-esignet`) on a schedule via CronJob, or on demand via Rancher/CLI.
+image `uitest-esignet`) on a schedule via CronJob, or on demand via Rancher/CLI. It installs via the
+real `mosip/uitestrig` chart (source: [`mosip/mosip-functional-tests`, `helm/uitestrig`](https://github.com/mosip/mosip-functional-tests/tree/develop/helm/uitestrig)).
 
 This is a **separate** installation from [`esignet-apitestrig`](../esignet-apitestrig), which runs the
-API suite (`apitest-esignet`). The two use different container contracts (see
-[mosip/esignet#2544](https://github.com/mosip/esignet/issues/2544) for the full gap analysis) and,
-unlike apitestrig, this module installs into its **own namespace** (`esignet-uitestrig`) rather than
-the shared `esignet` namespace. The generic testrig chart family hardcodes some ConfigMap names (e.g.
-`db`) instead of scoping them per-release, so a second release in the same namespace as apitestrig
-fails to install with a Helm ownership error on that ConfigMap. `install.sh` mirrors in the read-only
-ConfigMaps/Secrets (`esignet-global`, `keycloak-host`, `keycloak-client-secrets`) the job needs from
-`esignet` so this stays a one-command install.
+API suite (`apitest-esignet`) via a different chart (`mosip/apitestrig`, from `mosip-helm`) with a
+different values shape - don't copy `--set` flags between the two.
+
+Unlike apitestrig, this module installs into its **own namespace** (`esignet-uitestrig`) rather than
+the shared `esignet` namespace. The `uitestrig` chart's `configmaps.yaml`/`secrets.yaml` name
+ConfigMaps/Secrets literally (`db`, `s3`, `uitestrig`, ...) rather than scoping them per-release, so a
+second release in the same namespace as apitestrig (whose `apitestrig` chart does the same thing)
+fails to install with a Helm ownership error on the shared `db` ConfigMap name. `install.sh` mirrors
+in the read-only ConfigMaps/Secrets (`esignet-global`, `keycloak-host`, `keycloak-client-secrets`) the
+job needs from `esignet` so this stays a one-command install.
 
 Key differences from apitestrig that this module accounts for:
 
 | Concern | apitestrig | uitestrig |
 |---|---|---|
 | Image | `apitest-esignet` | `uitest-esignet` |
-| Resources | ~300m CPU / 500Mi | 500m–2 CPU / 2–4Gi memory (headless Chromium + JVM) |
-| `/dev/shm` | not needed | required, `emptyDir` memory volume, 2Gi |
+| `modules` value shape | map keyed by module name (`modules.esignet.image...`) | **list** of `{name, enabled, image}` - `$module.name` drives the CronJob/container name, so a missing `name` renders an empty resource name and fails to install |
 | Report path | `/home/mosip/testrig/report` | `/home/mosip/test-output` (+ `/home/mosip/screenshots`) |
 | Plugin detection | via actuator | eSignet-go has no actuator - `pluginToExecute=mock` set explicitly |
-| Browser | n/a | in-cluster Chromium only (`runOnBrowserStack=false`) |
+| Browser | n/a | in-cluster Chromium only (`runOnBrowserStack=false`); no `/dev/shm` volume needed - `ui-test`'s `BaseTestUtil` already adds `--disable-dev-shm-usage`/`--no-sandbox` unconditionally |
 | DB keys | `db-server`/`db-su-user`/`postgres-password` | `esignetDbHost`/`esignetDbPassword` only |
+| Report storage | S3 or NFS PVC | **S3 only** - the `uitestrig` chart has no PVC/NFS template at all; without S3 the report only exists in the pod until it's garbage-collected |
 
 ## Install
 
-There are two ways to store reports:
-
-S3 Storage – Run the install script directly and provide the required S3 configuration values.
-
-NFS Storage – Create the necessary directory on the NFS server and then proceed with the installation.
-
-* Create a directory for uitestrig on the NFS server at `/srv/nfs/mosip/<sandbox>/uitestrig/`:
-```
-mkdir -p /srv/nfs/mosip/<sandbox>/uitestrig/
-```
-* Ensure the directory has 777 permissions:
-```
-chmod 777 /srv/nfs/mosip/<sandbox>/uitestrig
-```
-* Add the following entry to the /etc/exports file:
-```
-/srv/nfs/mosip/<sandbox>/uitestrig *(rw,sync,no_root_squash,no_all_squash,insecure,subtree_check)
-```
-* Apply export command
-```
-sudo exportfs -rav
-```
-* Restart the nfs-server
-```
-sudo systemctl restart nfs-kernel-server
-```
-* Once the nfs-kernel-server is up, log out from the NFS server and continue the deployment from your local machine.
-
-* Review `values.yaml`. In particular confirm the `uitest-esignet` image repository/tag, and that
-  the `modules.esignet`/`uitestrig` keys below line up with whatever the `mosip/uitestrig` chart
-  currently exposes (see **Known gap** below).
+* Review `values.yaml`. In particular confirm the `uitest-esignet` image repository/tag under
+  `modules[0].image`.
 
 * run `./install.sh`.
 ```
@@ -71,12 +45,9 @@ sudo systemctl restart nfs-kernel-server
   * the Keycloak external URL,
   * whether the cluster has a public domain + valid SSL (selecting `n` mounts a self-signed
     `cacerts` init-container, same pattern as apitestrig),
-  * Chrome runs in-cluster only (`runOnBrowserStack=false`, `/dev/shm` mounted) - no BrowserStack
-    prompt or credentials needed,
-  * S3 or NFS for report storage.
-
-* If the report is stored in NFS, use `scp` to copy the reports (`/home/mosip/test-output/*.html`,
-  `/home/mosip/screenshots/`) to your local machine.
+  * S3 details for report storage (see the "Report storage" row above - there's no NFS fallback for
+    this chart; declining just means you retrieve reports with `kubectl cp` before the pod is
+    cleaned up).
 
 ## Uninstall
 * To uninstall uitestrig, run `delete.sh`:
@@ -89,7 +60,7 @@ sudo systemctl restart nfs-kernel-server
 #### Rancher UI
 * Run uitestrig manually via Rancher UI, the same way as apitestrig (see
   [`../esignet-apitestrig/README.md`](../esignet-apitestrig/README.md#run-apitestrig-manually) for
-  screenshots).
+  screenshots), in the `esignet-uitestrig` namespace.
 * Supported test levels: `smoke`, `smokeAndRegression` (default). To change it, update the
   `ENV_TESTLEVEL` key on the `uitestrig` ConfigMap and rerun the job.
 * To scope a run further, set (and leave unset when not needed - see the "silent trap" note in
@@ -104,25 +75,12 @@ sudo systemctl restart nfs-kernel-server
   ```
   example:
   ```
-  kubectl --kubeconfig=/home/xxx/Downloads/qa4.config -n esignet-uitestrig create job --from=cronjob/cronjob-uitestrig-esignet cronjob-uitestrig-esignet-manual
+  kubectl --kubeconfig=/home/xxx/Downloads/qa4.config -n esignet-uitestrig create job --from=cronjob/cronjob-esignet-uitestrig-esignet cronjob-esignet-uitestrig-esignet-manual
   ```
 
 ## Known gap
 
-This module installs via a dedicated `mosip/uitestrig` chart rather than reusing `mosip/apitestrig`
-(from [`mosip/mosip-functional-tests`](https://github.com/mosip/mosip-functional-tests)), per the
-decision in [mosip/esignet#2544](https://github.com/mosip/esignet/issues/2544) §6(iii): API and UI
-runs get their own chart/release so neither shares image, command, or resources with the other.
-
-`values.yaml`/`install.sh` here set the keys the UI harness needs (own image, Chromium resources,
-`/dev/shm`, `/home/mosip/test-output` mount) using names that mirror `apitestrig`'s existing
-conventions, on the assumption `uitestrig` is built as a sibling chart of the same shape. Confirm the
-actual key names against the published `mosip/uitestrig` chart once it exists, and that it actually
-honours the `/dev/shm` mount and the `/home/mosip/test-output` report `mountDir` - the chart-side work
-itself (in `mosip-functional-tests`) is tracked by #2544 and is not part of this repo.
-
-Separately, the generic testrig chart family appears to hardcode some ConfigMap names (e.g. `db`)
-rather than scoping them per-release, which breaks a same-namespace install alongside apitestrig with
-a Helm ownership error. `install.sh` works around this by using a dedicated `esignet-uitestrig`
-namespace instead. If a future chart release scopes these names per-release, both releases could move
-back into the shared `esignet` namespace and this script's namespace-mirroring step could be dropped.
+The `uitestrig` chart's `cronjob.yaml` doesn't set container `resources` (CPU/memory limits) at all
+currently - there's no lever in this chart to give the Chromium+JVM pod more headroom than whatever
+the cluster's namespace defaults provide. If pods get OOMKilled, that needs a chart-side fix in
+`mosip-functional-tests`, not something `values.yaml` here can work around.

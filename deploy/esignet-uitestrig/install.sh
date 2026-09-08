@@ -43,7 +43,7 @@ function installing_uitestrig() {
     $COPY_UTIL secret keycloak-client-secrets $SOURCE_NS $UITEST_NS
 
   echo "Delete uitestrig-owned s3/uitestrig configmaps in $UITEST_NS if they exist from a previous run"
-  kubectl -n $UITEST_NS delete --ignore-not-found=true configmap s3-esignet-uitestrig
+  kubectl -n $UITEST_NS delete --ignore-not-found=true configmap s3
   kubectl -n $UITEST_NS delete --ignore-not-found=true configmap uitestrig
 
   API_INTERNAL_HOST=$( kubectl -n $SOURCE_NS get cm esignet-global -o json | jq -r '.data."mosip-api-internal-host"' )
@@ -100,79 +100,48 @@ function installing_uitestrig() {
     ENABLE_INSECURE='--set enable_insecure=true';
   fi
 
-  # In-cluster Chromium always (no BrowserStack path) - #2544 §6(ii).
-  # runOnBrowserStack must be explicitly false since the JAR default is true.
-  BROWSER_OPTION="--set uitestrig.configmaps.uitestrig.runOnBrowserStack=false --set dshm.enabled=true"
+  # In-cluster Chromium always (no BrowserStack path). runOnBrowserStack must
+  # be explicitly false since the JAR default is true. No /dev/shm volume is
+  # needed: ui-test's BaseTestUtil already adds --disable-dev-shm-usage
+  # unconditionally, and the chart's cronjob.yaml doesn't support mounting
+  # one anyway (checked against the real chart source - see values.yaml).
+  BROWSER_OPTION="--set uitestrig.configmaps.uitestrig.runOnBrowserStack=false"
 
-  # Report storage - #2544 §6(i). The UI harness pushes to S3 in-process
-  # (BaseTest.pushReportsToS3), unlike the Go api-test harness.
-  NFS_OPTION=''
+  # Report storage: the uitestrig chart (mosip/mosip-functional-tests,
+  # helm/uitestrig) has no PVC/NFS volume support at all - S3 is the only
+  # storage path it can actually plumb through (ui-test's own in-process
+  # BaseTest.pushReportsToS3). If you skip S3, the Extent report only exists
+  # inside the pod's /home/mosip/test-output and is lost once the CronJob's
+  # completed pod is garbage-collected, unless you kubectl cp it out first.
   S3_OPTION=''
-  config_complete=false
-  while [ "$config_complete" = false ]; do
-    read -p "Do you have S3 details for storing uitestrig reports? (Y/n) : " ans
-    if [[ "$ans" == "y" || "$ans" == "Y" ]]; then
-      read -p "Please provide S3 host: " s3_host
-      if [[ -z $s3_host ]]; then
-        echo "S3 host not provided; EXITING;"
-        exit 1;
-      fi
-      read -p "Please provide S3 region: " s3_region
-      if [[ $s3_region == *[' !@#$%^&*()+']* ]]; then
-        echo "S3 region should not contain spaces or special characters; EXITING;"
-        exit 1;
-      fi
-      read -p "Please provide S3 access key: " s3_user_key
-      if [[ -z $s3_user_key ]]; then
-        echo "S3 access key not provided; EXITING;"
-        exit 1;
-      fi
-      read -p "Please provide S3 secret key: " s3_user_secret
-      if [[ -z $s3_user_secret ]]; then
-        echo "S3 secret key not provided; EXITING;"
-        exit 1;
-      fi
-      S3_OPTION="--set uitestrig.configmaps.s3.s3-host=$s3_host --set uitestrig.secrets.s3.s3-user-key=$s3_user_key --set uitestrig.secrets.s3.s3-user-secret=$s3_user_secret --set uitestrig.configmaps.s3.s3-region=$s3_region"
-      push_reports_to_s3="yes"
-      config_complete=true
-    elif [[ "$ans" == "n" || "$ans" == "N" ]]; then
-      push_reports_to_s3="no"
-      read -p "Since S3 details are not available, do you want to use NFS directory mount for storing reports? (y/n) : " answer
-      if [[ $answer == "Y" ]] || [[ $answer == "y" ]]; then
-        echo "Please select the storage class for NFS:"
-        echo "1. nfs-client"
-        echo "2. nfs-csi"
-        read -p "Enter your choice (1 or 2): " storage_choice
-        if [[ "$storage_choice" == "1" ]]; then
-          storage_class="nfs-client"
-        elif [[ "$storage_choice" == "2" ]]; then
-          storage_class="nfs-csi"
-        else
-          echo "Invalid choice. Exiting"
-          exit 1;
-        fi
-        read -p "Please provide NFS Server IP: " nfs_server
-        if [[ -z $nfs_server ]]; then
-          echo "NFS server not provided; EXITING."
-          exit 1;
-        fi
-        # NOTE: mount is /home/mosip/test-output, NOT /home/mosip/testrig/report
-        # like the API rig (#2544 §3.4, §5b).
-        read -p "Please provide NFS directory to store reports from NFS server (e.g. /srv/nfs/mosip/<sandbox>/uitestrig/), make sure permission is 777 for the folder: " nfs_path
-        if [[ -z $nfs_path ]]; then
-          echo "NFS Path not provided; EXITING."
-          exit 1;
-        fi
-        NFS_OPTION="--set uitestrig.volumes.reports.storageClass=$storage_class --set uitestrig.volumes.reports.nfs.server=$nfs_server --set uitestrig.volumes.reports.nfs.path=$nfs_path"
-        config_complete=true
-      else
-        echo "Please rerun the script with either S3 or NFS server details."
-        exit 1;
-      fi
-    else
-      echo "Invalid input. Please respond with Y (yes) or N (no)."
+  read -p "Do you have S3 details for storing uitestrig reports? (Y/n) : " ans
+  if [[ "$ans" == "y" || "$ans" == "Y" ]]; then
+    read -p "Please provide S3 host: " s3_host
+    if [[ -z $s3_host ]]; then
+      echo "S3 host not provided; EXITING;"
+      exit 1;
     fi
-  done
+    read -p "Please provide S3 region: " s3_region
+    if [[ $s3_region == *[' !@#$%^&*()+']* ]]; then
+      echo "S3 region should not contain spaces or special characters; EXITING;"
+      exit 1;
+    fi
+    read -p "Please provide S3 access key: " s3_user_key
+    if [[ -z $s3_user_key ]]; then
+      echo "S3 access key not provided; EXITING;"
+      exit 1;
+    fi
+    read -p "Please provide S3 secret key: " s3_user_secret
+    if [[ -z $s3_user_secret ]]; then
+      echo "S3 secret key not provided; EXITING;"
+      exit 1;
+    fi
+    S3_OPTION="--set uitestrig.configmaps.s3.s3-host=$s3_host --set uitestrig.secrets.s3.s3-user-key=$s3_user_key --set uitestrig.secrets.s3.s3-user-secret=$s3_user_secret --set uitestrig.configmaps.s3.s3-region=$s3_region"
+    push_reports_to_s3="yes"
+  else
+    push_reports_to_s3="no"
+    echo "Proceeding without S3. Reports will only be retrievable via 'kubectl cp' from the pod before it's garbage-collected."
+  fi
 
   read -p "Is values.yaml for uitestrig reviewed and set correctly as part of pre-requisites? (Y/n) : " yn;
   if [[ $yn = "Y" ]] || [[ $yn = "y" ]] ; then
@@ -181,7 +150,6 @@ function installing_uitestrig() {
     --set crontime="0 $time * * *" \
     -f values.yaml \
     --version $CHART_VERSION \
-    $NFS_OPTION \
     $S3_OPTION \
     $BROWSER_OPTION \
     --set uitestrig.configmaps.uitestrig.push-reports-to-s3=$push_reports_to_s3 \
