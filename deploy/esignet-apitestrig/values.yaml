@@ -34,7 +34,7 @@ apitestrig:
 
   extraEnvVars:
     # --- Keycloak ---
-    KEYCLOAK_TOKEN_URL: "https://iam.esdev.mosip.net/realms/mosip/protocol/openid-connect/token"
+    KEYCLOAK_TOKEN_URL: "https://iam.esdev.mosip.net/auth/realms/mosip/protocol/openid-connect/token"
     KEYCLOAK_CLIENT_ID: "mosip-pms-client"   # blank = config file's own default
 
     # --- TLS ---
