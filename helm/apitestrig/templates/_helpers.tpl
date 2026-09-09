@@ -245,7 +245,12 @@ spec:
           [ "$S3_INSECURE" = "true" ] && export MC_INSECURE=true
           mc alias set target "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY"
           mc mb --ignore-existing "target/$S3_BUCKET"
-          DEST="target/$S3_BUCKET/$S3_PATH_PREFIX/$(date -u +%Y-%m-%d_%H-%M-%S)"
+          # IST is UTC+5:30. Computed as raw seconds rather than TZ=Asia/Kolkata
+          # so this doesn't depend on a timezone database being present in
+          # this minimal image -- pure arithmetic on the epoch, then format
+          # the shifted value "as UTC" to get the correct IST wall-clock time.
+          IST_EPOCH=$(( $(date -u +%s) + 19800 ))
+          DEST="target/$S3_BUCKET/$S3_PATH_PREFIX/$(date -u -d @$IST_EPOCH +%Y-%m-%d_%H-%M)"
           mc cp --recursive {{ .Values.reports.mountPath }}/ "$DEST/"
           echo "Uploaded reports to $DEST"
       env:
