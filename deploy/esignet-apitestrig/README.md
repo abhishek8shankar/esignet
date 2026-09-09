@@ -31,25 +31,27 @@ files you edit directly beforehand.
    PII, kept out of `values.yaml`/git deliberately), and S3 access/secret
    keys. `install.sh` refuses to run without this file present.
 
-3. **Conformance plan config Secret** — `values.yaml` defaults to running
-   `conformance,api,e2e` with the in-pod suite (`apitestrig.conformanceSuite.enabled: true`),
-   which needs this in one of two ways:
-   - **Pre-created Secret** (`values.yaml`'s default —
-     `apitestrig.conformancePlanConfig.existingSecret: "esignet-conformance-plan"`):
-     ```bash
-     kubectl create secret generic esignet-conformance-plan -n esignet \
-       --from-file=esignet-config.json=./conformance-suite-private/esignet-config.json \
-       --from-file=esignet-fapi2-config.json=./conformance-suite-private/esignet-fapi2-config.json
-     ```
-   - **Inline in `values.secret.yaml`** — no separate `kubectl` step; `helm
-     upgrade` creates and manages the Secret itself as part of `./install.sh`.
-     Set `apitestrig.conformancePlanConfig.existingSecret: ""` and paste your
-     plan JSON under `apitestrig.conformancePlanConfig.files` — see the
-     commented-out example in `values.secret.yaml.example`.
+3. **Conformance plan config** — `values.yaml` defaults to running
+   `conformance,api,e2e` with the in-pod suite
+   (`apitestrig.conformanceSuite.enabled: true`), which needs a private plan
+   config (a JWKS). Paste your real plan JSON into
+   `apitestrig.conformancePlanConfig.files` in `values.secret.yaml`
+   (placeholders are there by default in `values.secret.yaml.example`) —
+   `helm upgrade` renders it into a Secret itself as part of `./install.sh`,
+   no separate `kubectl` step needed. Filenames must match
+   `plans[].config_file`'s basename exactly (see `config.mosip.json`'s own
+   `_comment` block) — typically `esignet-config.json` and
+   `esignet-fapi2-config.json`.
 
-   Without either, the run fails with a `config_file ... not readable` error.
-   If you don't have these plan files yet, set `apitestrig.surfaces: "api,e2e"`
-   in `values.yaml` until you do — see "Conformance surface" below for
+   (If you'd rather manage this Secret yourself outside of Helm — sealed-secrets,
+   external-secrets, etc. — set `apitestrig.conformancePlanConfig.existingSecret`
+   to that Secret's name in `values.yaml` instead, and leave `files` out of
+   `values.secret.yaml`.)
+
+   Without a filled-in plan, the run fails with a `config_file ... not
+   readable` error. If you don't have these plan files yet, set
+   `apitestrig.surfaces: "api,e2e"` in `values.yaml` until you do — see
+   "Conformance surface" below for
    details.
 
 ## Install
