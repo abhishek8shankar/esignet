@@ -31,6 +31,19 @@ files you edit directly beforehand.
    PII, kept out of `values.yaml`/git deliberately), and S3 access/secret
    keys. `install.sh` refuses to run without this file present.
 
+3. **Conformance plan config Secret** — `values.yaml` defaults to running
+   `conformance,api,e2e` with the in-pod suite (`apitestrig.conformanceSuite.enabled: true`),
+   which needs this Secret to already exist in the `esignet` namespace:
+   ```bash
+   kubectl create secret generic esignet-conformance-plan -n esignet \
+     --from-file=esignet-config.json=./conformance-suite-private/esignet-config.json \
+     --from-file=esignet-fapi2-config.json=./conformance-suite-private/esignet-fapi2-config.json
+   ```
+   Without it, the run fails with a `config_file ... not readable` error. If
+   you don't have these plan files yet, set `apitestrig.surfaces: "api,e2e"`
+   in `values.yaml` until you do — see "Conformance surface" below for
+   details.
+
 ## Install
 ```bash
 ./install.sh

@@ -27,8 +27,10 @@ apitestrig:
   # defaults to ["conformance","api","e2e"], and conformance needs a private
   # plan config (conformancePlanConfig below) plus a reachable
   # CONFORMANCE_BASE_URL -- see https://github.com/mosip/esignet/issues/2434
-  # §5a/§6ii. Leave at "api,e2e" until both of those are set up.
-  surfaces: "api,e2e"
+  # §5a/§6ii. Both are wired up below (conformancePlanConfig.existingSecret +
+  # conformanceSuite.enabled) so this works by default -- if either isn't
+  # actually set up yet in your namespace, drop back to "api,e2e" until it is.
+  surfaces: "conformance,api,e2e"
 
   extraEnvVars:
     # --- Keycloak ---
@@ -53,17 +55,20 @@ apitestrig:
     AUTH_POLICY_ID: "68895"
 
     # --- Conformance (only used if apitestrig.surfaces includes it) ---
-    # https://localhost.emobix.co.uk:8443 if apitestrig.conformanceSuite.enabled
-    # below (it resolves to 127.0.0.1, which is what makes the in-pod suite
-    # reachable) -- must match whatever your plan file's client_ids were
-    # registered against in eSignet if you change it.
-    CONFORMANCE_BASE_URL: ""
+    # https://localhost.emobix.co.uk:8443 resolves to 127.0.0.1 via public
+    # DNS -- with apitestrig.conformanceSuite.enabled below (in-pod suite),
+    # that's what makes it reachable at all. Must match whatever your plan
+    # file's client_ids were registered against in eSignet if you change it.
+    CONFORMANCE_BASE_URL: "https://localhost.emobix.co.uk:8443"
 
-  # See helm/apitestrig/README.md "Conformance plan config" -- needed only
-  # if apitestrig.surfaces includes "conformance".
+  # See helm/apitestrig/README.md "Conformance plan config". Assumes you've
+  # already created this Secret (kubectl create secret generic
+  # esignet-conformance-plan --from-file=esignet-config.json=... in this
+  # namespace -- if you haven't, this surface fails with a
+  # "config_file ... not readable" error.
   conformancePlanConfig:
-    enabled: false
-    existingSecret: ""   # e.g. esignet-conformance-plan
+    enabled: true
+    existingSecret: "esignet-conformance-plan"
 
   # See helm/apitestrig/README.md "Running the conformance suite itself" --
   # runs mongodb+server+nginx as extra containers in this pod so
@@ -71,7 +76,7 @@ apitestrig:
   # No K8s version requirement (regular containers + shareProcessNamespace +
   # a reaper container, not native sidecars).
   conformanceSuite:
-    enabled: false
+    enabled: true
 
 resources:
   limits:
