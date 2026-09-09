@@ -2,7 +2,7 @@
 
 ## Introduction
 Runs the Go-based [`api-test`](../../api-test) harness against the eSignet
-deployment in this cluster, via the [`../../helm/apitestrig`](../../helm/apitestrig)
+deployment in this cluster, via the [`../../helm/esignet-apitestrig`](../../helm/esignet-apitestrig)
 chart.
 
 `install.sh` only asks two questions now:
@@ -69,7 +69,7 @@ You'll be prompted for the eSignet base URL, then asked to confirm
 ## Conformance surface
 Set `apitestrig.surfaces: "conformance,api,e2e"` in `values.yaml`, plus:
 - `apitestrig.conformancePlanConfig.enabled: true` and `existingSecret` —
-  see [`helm/apitestrig/README.md`](../../helm/apitestrig/README.md#conformance-plan-config)
+  see [`helm/esignet-apitestrig/README.md`](../../helm/esignet-apitestrig/README.md#conformance-plan-config)
   for creating that Secret.
 - Either `apitestrig.conformanceSuite.enabled: true` to run the suite
   in-pod (no separate deployment, no Kubernetes version requirement — see

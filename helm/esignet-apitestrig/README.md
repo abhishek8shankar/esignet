@@ -1,4 +1,10 @@
-# apitestrig (eSignet, Go)
+# esignet-apitestrig (eSignet, Go)
+
+> Named `esignet-apitestrig`, not `apitestrig` — that name is already used by
+> [`mosip-functional-tests/helm/apitestrig`](https://github.com/mosip/mosip-functional-tests/tree/develop/helm/apitestrig)
+> (the Java-based test rig), a structurally incompatible chart. Keeping this
+> distinct avoids any collision if both ever end up in the same chart
+> repository (e.g. `mosip-helm`).
 
 Helm chart to run the Go-based [`api-test`](../../api-test) harness against a
 deployed eSignet instance, either on a schedule (`CronJob`) or as a one-off
@@ -29,7 +35,7 @@ Java testrig's one-image-per-module model.
 ## Quick start
 
 ```bash
-cd helm/apitestrig
+cd helm/esignet-apitestrig
 helm dependency build
 
 # One-off run against a deployed environment, api+e2e only

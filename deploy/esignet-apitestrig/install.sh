@@ -1,5 +1,6 @@
 #!/bin/bash
-# Installs the eSignet api-test rig (Go harness, ../../helm/apitestrig chart).
+# Installs the eSignet api-test rig (Go harness, ../../helm/esignet-apitestrig
+# chart).
 ## Usage: ./install.sh [kubeconfig]
 #
 # Only two prompts now -- everything else lives in values.yaml (tracked in
@@ -8,6 +9,14 @@
 # values.secret.yaml.example to get started). Previous versions of this
 # script asked ~15 interactive questions for all of that; if you're used to
 # that flow, the same settings now live in those two files instead.
+#
+# Installs from a locally-built chart package (a .tgz), not the raw chart
+# directory -- build/refresh it with:
+#   helm dependency build ../../helm/esignet-apitestrig
+#   helm package ../../helm/esignet-apitestrig -d ../../helm
+# This script derives the expected package filename from the chart's own
+# Chart.yaml (name + version) and tells you the exact command to run if it's
+# missing or stale.
 
 if [ $# -ge 1 ] ; then
   export KUBECONFIG=$1
@@ -20,7 +29,14 @@ set -o pipefail
 
 NS=esignet
 RELEASE_NAME=esignet-apitestrig
-CHART_PATH=../../helm/apitestrig
+CHART_SRC=../../helm/esignet-apitestrig
+CHART_NAME=$(grep '^name:' "$CHART_SRC/Chart.yaml" | awk '{print $2}')
+CHART_VERSION=$(grep '^version:' "$CHART_SRC/Chart.yaml" | awk '{print $2}')
+if [[ -z "$CHART_NAME" || -z "$CHART_VERSION" ]]; then
+  echo "ERROR: couldn't read name/version from $CHART_SRC/Chart.yaml; EXITING."
+  exit 1
+fi
+CHART_PACKAGE="../../helm/${CHART_NAME}-${CHART_VERSION}.tgz"
 VALUES_FILE=values.yaml
 SECRET_VALUES_FILE=values.secret.yaml
 
@@ -32,11 +48,17 @@ function installing_apitestrig() {
     exit 1
   fi
 
+  if [[ ! -f "$CHART_PACKAGE" ]]; then
+    echo "ERROR: $CHART_PACKAGE not found."
+    echo "Build it first:"
+    echo "  helm dependency build $CHART_SRC"
+    echo "  helm package $CHART_SRC -d ../../helm"
+    echo "EXITING."
+    exit 1
+  fi
+
   echo "Create $NS namespace (if it doesn't already exist)"
   kubectl create ns "$NS" 2>/dev/null || true
-
-  echo "Building chart dependencies (bitnami/common) for $CHART_PATH"
-  helm dependency build "$CHART_PATH"
 
   # Best-effort default, same as before: read eSignet's own host if it's
   # deployed in this namespace. Falls back to a bare prompt if not found.
@@ -61,8 +83,8 @@ function installing_apitestrig() {
   fi
 
   echo ""
-  echo "Installing $RELEASE_NAME in namespace $NS from $CHART_PATH ..."
-  helm -n "$NS" upgrade --install "$RELEASE_NAME" "$CHART_PATH" \
+  echo "Installing $RELEASE_NAME in namespace $NS from $CHART_PACKAGE ..."
+  helm -n "$NS" upgrade --install "$RELEASE_NAME" "$CHART_PACKAGE" \
     -f "$VALUES_FILE" \
     -f "$SECRET_VALUES_FILE" \
     --set apitestrig.extraEnvVars.MOSIP_ESIGNET_BASE_URL="$MOSIP_ESIGNET_BASE_URL"
