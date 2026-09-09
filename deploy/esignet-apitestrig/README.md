@@ -2,10 +2,20 @@
 
 ## Introduction
 Runs the Go-based [`api-test`](../../api-test) harness against the eSignet
-deployment in this cluster, via the [`../../helm/esignet-apitestrig`](../../helm/esignet-apitestrig)
-chart.
+deployment in this cluster, via the
+[`../../helm/esignet-apitestrig`](../../helm/esignet-apitestrig) chart.
 
-`install.sh` only asks two questions now:
+`install.sh` mirrors [`../esignet/install.sh`](../esignet/install.sh)'s own
+pattern: `helm repo add`/`helm repo update` against the published
+[`mosip-helm`](https://mosip.github.io/mosip-helm) repo, then
+`helm upgrade --install` by chart name and `CHART_VERSION`, not a local
+path. **This only works once `helm/esignet-apitestrig` has merged upstream
+and MOSIP's CI has published it** — until then, `helm install` fails with
+"chart not found", which is expected while this lives on a feature branch.
+Bump `install.sh`'s `CHART_VERSION` alongside `helm/esignet-apitestrig/Chart.yaml`'s
+own `version` whenever either changes.
+
+`install.sh` only asks two questions:
 1. the eSignet base URL (the one thing that realistically changes every run)
 2. whether you've actually reviewed/updated `values.yaml`
 
