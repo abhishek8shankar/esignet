@@ -2,11 +2,12 @@
 # Installs the eSignet api-test rig (Go harness, ../../helm/apitestrig chart).
 ## Usage: ./install.sh [kubeconfig]
 #
-# This replaces the old Java-testrig wrapper that installed the published
-# `mosip/apitestrig` chart with `modules.esignet.enabled=true`. The Go
-# harness (api-test/) is a single image with selectable "surfaces"
-# (conformance/api/e2e), not one image per MOSIP module, so this script
-# drives ../../helm/apitestrig directly instead.
+# Only two prompts now -- everything else lives in values.yaml (tracked in
+# git, edit it directly) and values.secret.yaml (gitignored, holds
+# KEYCLOAK_CLIENT_SECRET / the test identity / S3 keys -- copy
+# values.secret.yaml.example to get started). Previous versions of this
+# script asked ~15 interactive questions for all of that; if you're used to
+# that flow, the same settings now live in those two files instead.
 
 if [ $# -ge 1 ] ; then
   export KUBECONFIG=$1
@@ -20,21 +21,26 @@ set -o pipefail
 NS=esignet
 RELEASE_NAME=esignet-apitestrig
 CHART_PATH=../../helm/apitestrig
+VALUES_FILE=values.yaml
+SECRET_VALUES_FILE=values.secret.yaml
 
 function installing_apitestrig() {
+  if [[ ! -f "$SECRET_VALUES_FILE" ]]; then
+    echo "ERROR: $SECRET_VALUES_FILE not found."
+    echo "Copy ${SECRET_VALUES_FILE}.example to $SECRET_VALUES_FILE and fill in"
+    echo "KEYCLOAK_CLIENT_SECRET, the test identity, and S3 keys; EXITING."
+    exit 1
+  fi
+
   echo "Create $NS namespace (if it doesn't already exist)"
   kubectl create ns "$NS" 2>/dev/null || true
 
   echo "Building chart dependencies (bitnami/common) for $CHART_PATH"
   helm dependency build "$CHART_PATH"
 
-  # Best-effort: this deploy wrapper assumes eSignet is already deployed in
-  # the same namespace, so try to read its host/keycloak config to offer as
-  # defaults. Falls back to a bare prompt if the configmaps aren't there
-  # (e.g. eSignet lives in a different cluster/namespace).
+  # Best-effort default, same as before: read eSignet's own host if it's
+  # deployed in this namespace. Falls back to a bare prompt if not found.
   ESIGNET_HOST=$(kubectl -n "$NS" get cm esignet-global -o json 2>/dev/null | jq -r '.data."mosip-esignet-host"' 2>/dev/null || true)
-  KEYCLOAK_EXTERNAL_URL=$(kubectl -n "$NS" get cm keycloak-host -o json 2>/dev/null | jq -r '.data."keycloak-external-url"' 2>/dev/null || true)
-
   DEFAULT_BASE_URL=""
   if [[ -n "$ESIGNET_HOST" && "$ESIGNET_HOST" != "null" ]]; then
     DEFAULT_BASE_URL="https://$ESIGNET_HOST/v1/esignet"
@@ -46,255 +52,20 @@ function installing_apitestrig() {
     exit 1
   fi
 
-  DEFAULT_TOKEN_URL=""
-  if [[ -n "$KEYCLOAK_EXTERNAL_URL" && "$KEYCLOAK_EXTERNAL_URL" != "null" ]]; then
-    read -rp "Keycloak realm [mosip]: " REALM_ID
-    REALM_ID="${REALM_ID:-mosip}"
-    DEFAULT_TOKEN_URL="$KEYCLOAK_EXTERNAL_URL/realms/$REALM_ID/protocol/openid-connect/token"
-  fi
-  read -rp "Keycloak token URL${DEFAULT_TOKEN_URL:+ [$DEFAULT_TOKEN_URL]}: " KEYCLOAK_TOKEN_URL
-  KEYCLOAK_TOKEN_URL="${KEYCLOAK_TOKEN_URL:-$DEFAULT_TOKEN_URL}"
-  if [[ -z "$KEYCLOAK_TOKEN_URL" ]]; then
-    echo "ERROR: Keycloak token URL is required; EXITING."
+  read -rp "Have you reviewed/updated $VALUES_FILE for this environment? (Y/n): " values_confirmed
+  values_confirmed=$(printf '%s' "$values_confirmed" | tr '[:upper:]' '[:lower:]')
+  if [[ "$values_confirmed" != "y" ]]; then
+    echo "Update $VALUES_FILE first (Keycloak/OTP/PMS settings, surfaces,"
+    echo "report storage, etc.), then re-run this script; EXITING."
     exit 1
-  fi
-
-  read -rsp "Keycloak client secret for the test client (input hidden): " KEYCLOAK_CLIENT_SECRET
-  echo
-  if [[ -z "$KEYCLOAK_CLIENT_SECRET" ]]; then
-    echo "ERROR: Keycloak client secret is required; EXITING."
-    exit 1
-  fi
-
-  # config.mosip.json defaults keycloak.client_id to "mosip-pms-client" for
-  # PMS-routed calls -- direct eSignet client-mgmt calls or a differently
-  # configured environment may need a different admin client. Optional:
-  # leave blank to keep the config file's default.
-  read -rp "Keycloak client ID for the admin token [leave blank for config default, mosip-pms-client]: " KEYCLOAK_CLIENT_ID
-
-  EXTRA_OPTS=()
-  if [[ -n "$KEYCLOAK_CLIENT_ID" ]]; then
-    EXTRA_OPTS+=(--set "apitestrig.extraEnvVars.KEYCLOAK_CLIENT_ID=$KEYCLOAK_CLIENT_ID")
-  fi
-
-  ESIGNET_TLS_VERIFY="true"
-  API_TLS_VERIFY="true"
-  read -rp "Does the eSignet endpoint use a self-signed/internal certificate? (y/N): " insecure_flag
-  insecure_flag=$(printf '%s' "$insecure_flag" | tr '[:upper:]' '[:lower:]')
-  if [[ "$insecure_flag" == "y" ]]; then
-    ESIGNET_TLS_VERIFY="false"
-    API_TLS_VERIFY="false"
-  fi
-
-  read -rp "Test individual ID (UIN/VID/phone/email of a pre-provisioned test identity): " INDIVIDUAL_ID
-  if [[ -z "$INDIVIDUAL_ID" ]]; then
-    echo "ERROR: Individual ID is required; EXITING."
-    exit 1
-  fi
-
-  ID_TYPE=""
-  while [[ "$ID_TYPE" != "uin" && "$ID_TYPE" != "vid" && "$ID_TYPE" != "phone" && "$ID_TYPE" != "email" ]]; do
-    read -rp "ID type (uin/vid/phone/email): " ID_TYPE
-    ID_TYPE=$(printf '%s' "$ID_TYPE" | tr '[:upper:]' '[:lower:]')
-  done
-
-  # config.mosip.json ships esignet.otp.source="dynamic" by default, but
-  # otp.ws_url and all of pms.* are blank there and must come from the
-  # environment -- see mosip/esignet#2434 §4 and the config file's own
-  # "_comment" block ("Required there: ... esignet.otp.ws_url, esignet.pms.*").
-  read -rp "OTP mock-SMTP websocket URL (esignet.otp.ws_url, e.g. https://smtp.<env>.mosip.net/): " OTP_WS_URL
-  if [[ -z "$OTP_WS_URL" ]]; then
-    echo "ERROR: OTP websocket URL is required; EXITING."
-    exit 1
-  fi
-
-  # Without this, the harness listens on the mock-SMTP socket for an empty
-  # recipient string and the dynamic-OTP e2e scenarios never see their OTP.
-  read -rp "OTP recipient email (esignet.otp.recipient_email, the test identity's registered contact): " OTP_RECIPIENT_EMAIL
-  if [[ -z "$OTP_RECIPIENT_EMAIL" ]]; then
-    echo "ERROR: OTP recipient email is required; EXITING."
-    exit 1
-  fi
-
-  read -rp "PMS base URL (esignet.pms.base_url): " PMS_BASE_URL
-  if [[ -z "$PMS_BASE_URL" ]]; then
-    echo "ERROR: PMS base URL is required; EXITING."
-    exit 1
-  fi
-
-  read -rp "PMS auth partner ID (esignet.pms.auth_partner_id): " AUTH_PARTNER_ID
-  if [[ -z "$AUTH_PARTNER_ID" ]]; then
-    echo "ERROR: PMS auth partner ID is required; EXITING."
-    exit 1
-  fi
-
-  read -rp "PMS policy ID (esignet.pms.policy_id): " AUTH_POLICY_ID
-  if [[ -z "$AUTH_POLICY_ID" ]]; then
-    echo "ERROR: PMS policy ID is required; EXITING."
-    exit 1
-  fi
-
-  echo ""
-  echo "Which surfaces should run?"
-  echo "  1) api,e2e             - no OpenID Conformance Suite required"
-  echo "  2) conformance,api,e2e - requires the OpenID Conformance Suite"
-  read -rp "Enter your choice [1-2]: " SURFACE_CHOICE
-
-  CONFORMANCE_BASE_URL=""
-  CONFORMANCE_OPTS=()
-  case "$SURFACE_CHOICE" in
-    2)
-      SURFACES="conformance,api,e2e"
-
-      read -rp "Run the OpenID Conformance Suite in-pod alongside this test rig (mongodb+server+nginx as extra containers, see helm/apitestrig README)? (y/N): " run_suite_inpod
-      run_suite_inpod=$(printf '%s' "$run_suite_inpod" | tr '[:upper:]' '[:lower:]')
-
-      DEFAULT_CONFORMANCE_URL=""
-      if [[ "$run_suite_inpod" == "y" ]]; then
-        CONFORMANCE_OPTS+=(--set "apitestrig.conformanceSuite.enabled=true")
-        DEFAULT_CONFORMANCE_URL="https://localhost.emobix.co.uk:8443"
-        echo "Note: the suite advertises itself using this exact URL when building"
-        echo "callback URLs -- it must match what your plan file's client_ids were"
-        echo "registered against in eSignet. Only change the default below if you know"
-        echo "that's actually different for your plan."
-      fi
-
-      read -rp "Conformance suite base URL${DEFAULT_CONFORMANCE_URL:+ [$DEFAULT_CONFORMANCE_URL]}: " CONFORMANCE_BASE_URL
-      CONFORMANCE_BASE_URL="${CONFORMANCE_BASE_URL:-$DEFAULT_CONFORMANCE_URL}"
-      if [[ -z "$CONFORMANCE_BASE_URL" ]]; then
-        echo "ERROR: Conformance suite base URL is required for this surface selection; EXITING."
-        exit 1
-      fi
-
-      read -rp "Do you already have the conformance plan config Secret created (see helm/apitestrig README, 'Conformance plan config')? (y/N): " has_plan_secret
-      has_plan_secret=$(printf '%s' "$has_plan_secret" | tr '[:upper:]' '[:lower:]')
-      if [[ "$has_plan_secret" == "y" ]]; then
-        read -rp "Secret name [esignet-conformance-plan]: " plan_secret_name
-        plan_secret_name="${plan_secret_name:-esignet-conformance-plan}"
-        CONFORMANCE_OPTS+=(
-          --set "apitestrig.conformancePlanConfig.enabled=true"
-          --set "apitestrig.conformancePlanConfig.existingSecret=$plan_secret_name"
-        )
-      else
-        echo "WARNING: without the plan config Secret, the conformance surface will fail"
-        echo "with a 'config_file ... not readable' error. Create it per the README, then"
-        echo "re-run this script."
-      fi
-      ;;
-    *)
-      SURFACES="api,e2e"
-      ;;
-  esac
-
-  read -rp "Please enter the time (hr) to run the cronjob every day (0-23): " time
-  if [[ -z "$time" ]] || ! [[ "$time" =~ ^[0-9]+$ ]] || (( time < 0 || time > 23 )); then
-    echo "ERROR: Time must be a number between 0 and 23; EXITING."
-    exit 1
-  fi
-
-  echo ""
-  read -rp "Do you have S3 (or MinIO) details for storing apitestrig reports? (y/N): " s3_ans
-  s3_ans=$(printf '%s' "$s3_ans" | tr '[:upper:]' '[:lower:]')
-
-  REPORT_OPTS=()
-  if [[ "$s3_ans" == "y" ]]; then
-    read -rp "S3 endpoint (e.g. https://s3.amazonaws.com or http://minio.minio:9000): " s3_endpoint
-    if [[ -z "$s3_endpoint" ]]; then
-      echo "ERROR: S3 endpoint is required; EXITING."
-      exit 1
-    fi
-    read -rp "S3 bucket: " s3_bucket
-    if [[ -z "$s3_bucket" ]]; then
-      echo "ERROR: S3 bucket is required; EXITING."
-      exit 1
-    fi
-    read -rp "S3 path prefix [apitestrig/esignet]: " s3_prefix
-    s3_prefix="${s3_prefix:-apitestrig/esignet}"
-    read -rp "S3 access key: " s3_access_key
-    if [[ -z "$s3_access_key" ]]; then
-      echo "ERROR: S3 access key is required; EXITING."
-      exit 1
-    fi
-    read -rsp "S3 secret key (input hidden): " s3_secret_key
-    echo
-    if [[ -z "$s3_secret_key" ]]; then
-      echo "ERROR: S3 secret key is required; EXITING."
-      exit 1
-    fi
-    read -rp "Does the S3/MinIO endpoint use a self-signed cert or plain http? (y/N): " s3_insecure_flag
-    s3_insecure_flag=$(printf '%s' "$s3_insecure_flag" | tr '[:upper:]' '[:lower:]')
-    s3_insecure="false"
-    [[ "$s3_insecure_flag" == "y" ]] && s3_insecure="true"
-
-    REPORT_OPTS+=(
-      --set "reports.s3.enabled=true"
-      --set "reports.s3.endpoint=$s3_endpoint"
-      --set "reports.s3.bucket=$s3_bucket"
-      --set "reports.s3.pathPrefix=$s3_prefix"
-      --set "reports.s3.insecure=$s3_insecure"
-      --set "reports.s3.accessKey=$s3_access_key"
-      --set "reports.s3.secretKey=$s3_secret_key"
-    )
-
-    read -rp "Also keep a local PVC copy of each run's reports? (y/N): " keep_pvc
-    keep_pvc=$(printf '%s' "$keep_pvc" | tr '[:upper:]' '[:lower:]')
-    if [[ "$keep_pvc" != "y" ]]; then
-      REPORT_OPTS+=(--set "reports.persistence.enabled=false")
-    fi
-  else
-    echo ""
-    echo "Where should reports (the consolidated HTML report) be stored?"
-    echo "  1) New PVC, default storage class"
-    echo "  2) New PVC on a specific storage class (e.g. nfs-csi)"
-    echo "  3) Reuse an existing PVC"
-    read -rp "Enter your choice [1-3]: " report_choice
-
-    case "$report_choice" in
-      2)
-        read -rp "Storage class name: " storage_class
-        if [[ -z "$storage_class" ]]; then
-          echo "ERROR: Storage class name is required; EXITING."
-          exit 1
-        fi
-        REPORT_OPTS+=(--set "reports.persistence.storageClass=$storage_class")
-        ;;
-      3)
-        read -rp "Existing PVC name: " existing_claim
-        if [[ -z "$existing_claim" ]]; then
-          echo "ERROR: Existing PVC name is required; EXITING."
-          exit 1
-        fi
-        REPORT_OPTS+=(--set "reports.persistence.existingClaim=$existing_claim")
-        ;;
-      *)
-        : # default storage class, new PVC — no extra flags needed
-        ;;
-    esac
   fi
 
   echo ""
   echo "Installing $RELEASE_NAME in namespace $NS from $CHART_PATH ..."
   helm -n "$NS" upgrade --install "$RELEASE_NAME" "$CHART_PATH" \
-    -f values.yaml \
-    --set triggerKind=cronjob \
-    --set crontime="0 $time * * *" \
-    --set apitestrig.surfaces="${SURFACES//,/\\,}" \
-    --set apitestrig.extraEnvVars.MOSIP_ESIGNET_BASE_URL="$MOSIP_ESIGNET_BASE_URL" \
-    --set apitestrig.extraEnvVars.KEYCLOAK_TOKEN_URL="$KEYCLOAK_TOKEN_URL" \
-    --set apitestrig.extraEnvVars.ESIGNET_TLS_VERIFY="$ESIGNET_TLS_VERIFY" \
-    --set apitestrig.extraEnvVars.API_TLS_VERIFY="$API_TLS_VERIFY" \
-    --set apitestrig.extraEnvVars.CONFORMANCE_BASE_URL="$CONFORMANCE_BASE_URL" \
-    --set apitestrig.extraEnvVars.ID_TYPE="$ID_TYPE" \
-    --set apitestrig.extraEnvVars.OTP_WS_URL="$OTP_WS_URL" \
-    --set apitestrig.extraEnvVars.OTP_RECIPIENT_EMAIL="$OTP_RECIPIENT_EMAIL" \
-    --set apitestrig.extraEnvVars.PMS_BASE_URL="$PMS_BASE_URL" \
-    --set apitestrig.extraEnvVars.AUTH_PARTNER_ID="$AUTH_PARTNER_ID" \
-    --set apitestrig.extraEnvVars.AUTH_POLICY_ID="$AUTH_POLICY_ID" \
-    --set apitestrig.extraEnvVarsSecret.KEYCLOAK_CLIENT_SECRET="$KEYCLOAK_CLIENT_SECRET" \
-    --set apitestrig.extraEnvVarsSecret.INDIVIDUAL_ID="$INDIVIDUAL_ID" \
-    "${EXTRA_OPTS[@]}" \
-    "${CONFORMANCE_OPTS[@]}" \
-    "${REPORT_OPTS[@]}"
+    -f "$VALUES_FILE" \
+    -f "$SECRET_VALUES_FILE" \
+    --set apitestrig.extraEnvVars.MOSIP_ESIGNET_BASE_URL="$MOSIP_ESIGNET_BASE_URL"
 
   echo "Installed $RELEASE_NAME."
 }

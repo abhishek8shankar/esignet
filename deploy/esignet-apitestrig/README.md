@@ -5,71 +5,59 @@ Runs the Go-based [`api-test`](../../api-test) harness against the eSignet
 deployment in this cluster, via the [`../../helm/apitestrig`](../../helm/apitestrig)
 chart.
 
-This replaces the previous Java-testrig wrapper, which installed the
-published `mosip/apitestrig` chart with `modules.esignet.enabled=true`. The
-Go harness ships as a single image rather than one image per MOSIP module,
-so this script drives the local chart directly.
+`install.sh` only asks two questions now:
+1. the eSignet base URL (the one thing that realistically changes every run)
+2. whether you've actually reviewed/updated `values.yaml`
 
-`install.sh` prompts for the test identity and which surfaces to run (see
-below) and passes them straight through as `--set` overrides — you don't
-need to hand-edit `apitestrig.configFile`'s own `run.surfaces` for a normal
-install.
+Everything else that used to be an interactive prompt — Keycloak, TLS
+verification, the test identity, OTP/PMS settings, surfaces, report storage,
+conformance suite/plan config, cron schedule — is now a value in one of two
+files you edit directly beforehand.
 
-If you pick the `conformance,api,e2e` surface set, note that `conformance`
-also needs a private plan config this chart doesn't mount by default (see
-`apitestrig.conformancePlanConfig` in the chart's README) on top of a
-reachable `CONFORMANCE_BASE_URL` — without both it fails with a
-`config_file ... not readable` error (see
-[mosip/esignet#2434](https://github.com/mosip/esignet/issues/2434)).
+## Setup
 
-## Prerequisites
-- `kubectl` and `helm` installed locally.
-- eSignet already deployed and reachable (in this namespace, or elsewhere —
-  you'll be prompted for its base URL).
-- If the selected config runs the `conformance` surface, the OpenID
-  Conformance Suite must already be deployed and reachable — this chart does
-  **not** deploy it.
+1. **`values.yaml`** (tracked in git) — non-secret settings. Open it and
+   fill in your environment's Keycloak token URL, OTP/PMS values, surfaces,
+   report storage, etc. Defaults are pre-filled from a known-working
+   configuration as a starting point — check every value, don't assume they
+   fit your environment.
+
+2. **`values.secret.yaml`** (gitignored) — secrets. Copy the example and
+   fill in real values:
+   ```bash
+   cp values.secret.yaml.example values.secret.yaml
+   ```
+   Holds `KEYCLOAK_CLIENT_SECRET`, the test identity (`INDIVIDUAL_ID` —
+   PII, kept out of `values.yaml`/git deliberately), and S3 access/secret
+   keys. `install.sh` refuses to run without this file present.
 
 ## Install
-```sh
+```bash
 ./install.sh
 ```
-You'll be prompted for:
-- the eSignet base URL (defaults from the `esignet-global` configmap's
-  `mosip-esignet-host` if eSignet is deployed in the same `esignet`
-  namespace),
-- the Keycloak token URL and client secret for the test client, plus an
-  optional client ID override if the config default (`mosip-pms-client`)
-  isn't the right admin client for this environment,
-- whether eSignet's certificate is self-signed (sets `ESIGNET_TLS_VERIFY` /
-  `API_TLS_VERIFY` to `false` instead of importing a certificate — the Go
-  harness needs no Java keystore/`cacerts` step),
-- the test identity (`INDIVIDUAL_ID`, kept out of ConfigMaps as a Secret
-  value since it's PII, and `ID_TYPE`),
-- OTP and PMS settings the mosipid plugin needs and `config.mosip.json`
-  ships blank (`OTP_WS_URL`, `OTP_RECIPIENT_EMAIL`, `PMS_BASE_URL`,
-  `AUTH_PARTNER_ID`, `AUTH_POLICY_ID` — see the config file's own `_comment`
-  block and [mosip/esignet#2434](https://github.com/mosip/esignet/issues/2434)
-  §4),
-- which surfaces to run (`api,e2e`, or `conformance,api,e2e` plus the
-  conformance suite's base URL) — choosing `conformance` also asks whether to
-  run the suite in-pod (`apitestrig.conformanceSuite.enabled`, see the
-  chart's README) and whether you already have the plan config Secret
-  (`apitestrig.conformancePlanConfig.enabled`/`existingSecret`),
-- the cron schedule,
-- where to persist the consolidated HTML report: S3/MinIO (endpoint, bucket,
-  path prefix, credentials — uploaded after each run via a second container
-  that waits for the harness to finish), or if you skip that, a PVC (new,
-  new on a named storage class, or an existing one).
-
-Review `values.yaml` first if you want to change the baked-in config profile
-(`apitestrig.configFile`, default `config.mosip.json`) or default resource
-requests/limits.
+You'll be prompted for the eSignet base URL, then asked to confirm
+`values.yaml` is ready. Everything else comes from the two files above.
 
 ## Uninstall
-```sh
+```bash
 ./delete.sh
 ```
+
+## Conformance surface
+Set `apitestrig.surfaces: "conformance,api,e2e"` in `values.yaml`, plus:
+- `apitestrig.conformancePlanConfig.enabled: true` and `existingSecret` —
+  see [`helm/apitestrig/README.md`](../../helm/apitestrig/README.md#conformance-plan-config)
+  for creating that Secret.
+- Either `apitestrig.conformanceSuite.enabled: true` to run the suite
+  in-pod (no separate deployment, no Kubernetes version requirement — see
+  that same README's "Running the conformance suite itself" section), or
+  point `apitestrig.extraEnvVars.CONFORMANCE_BASE_URL` at a suite you're
+  running elsewhere.
+
+Without the plan config Secret, the conformance surface fails with a
+`config_file ... not readable` error — see
+[mosip/esignet#2434](https://github.com/mosip/esignet/issues/2434) §5a/§6ii
+for background.
 
 ## Run manually
 
@@ -83,7 +71,9 @@ kubectl --kubeconfig=<k8s-config-file> -n esignet create job \
   --from=cronjob/esignet-apitestrig <job-name>
 ```
 
-Reports land in the PVC configured above at `/app/out` inside the pod:
+Reports land wherever `values.yaml`'s `reports.*` settings point — a PVC at
+`/app/out` inside the pod (`reports.persistence.enabled: true`), and/or
+S3/MinIO (`reports.s3.enabled: true`). For the PVC case:
 ```sh
 kubectl -n esignet cp <pod-name>:/app/out ./out
 ```

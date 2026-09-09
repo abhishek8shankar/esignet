@@ -1,14 +1,20 @@
-# Values overrides layered on top of ../../helm/apitestrig's defaults for
-# running the eSignet api-test (Go) harness inside the `esignet` namespace,
-# alongside the eSignet deployment itself. Everything environment-specific
-# (URLs, credentials, cron time, report storage) is filled in interactively
-# by install.sh and passed via --set — this file only carries the bits that
-# don't change per environment.
+# Values for ../../helm/apitestrig, covering everything this deploy wrapper
+# used to collect via interactive prompts. Edit this file directly before
+# running ./install.sh -- it now only asks two questions:
+#   1. the eSignet base URL (the one thing that changes on every run)
+#   2. whether you've actually updated this file
+#
+# Secrets (KEYCLOAK_CLIENT_SECRET, the test identity, S3 keys) do NOT belong
+# in this file -- it's tracked in git. Put those in values.secret.yaml
+# instead (gitignored; copy values.secret.yaml.example to get started).
 
 image:
   repository: mosipdev/apitest-esignet
   tag: develop-go
   pullPolicy: Always
+
+triggerKind: cronjob
+crontime: "0 8 * * *"   # hour 0-23, matches the old "time" prompt
 
 apitestrig:
   # The image ships data/config/config.{mock,mosip,sunbird}.json baked in.
@@ -17,16 +23,55 @@ apitestrig:
   # pointing this at a mock-plugin eSignet instead.
   configFile: /app/data/config/config.mosip.json
 
-  # config.mosip.json's own run.surfaces defaults to
-  # ["conformance", "api", "e2e"], and the conformance surface needs a
-  # private plan config (conformance-suite-private/esignet-*.json) that
-  # isn't shipped in the image or mounted by default (see
-  # https://github.com/mosip/esignet/issues/2434 §5a/§6ii). Until that's
-  # set up (apitestrig.conformancePlanConfig below, plus a reachable
-  # CONFORMANCE_BASE_URL), default to api,e2e so a plain install doesn't
-  # fail on a missing plan file. Set to "" to fall back to the config
-  # file's own surfaces once conformance is wired up.
+  # "api,e2e" or "conformance,api,e2e". config.mosip.json's own run.surfaces
+  # defaults to ["conformance","api","e2e"], and conformance needs a private
+  # plan config (conformancePlanConfig below) plus a reachable
+  # CONFORMANCE_BASE_URL -- see https://github.com/mosip/esignet/issues/2434
+  # §5a/§6ii. Leave at "api,e2e" until both of those are set up.
   surfaces: "api,e2e"
+
+  extraEnvVars:
+    # --- Keycloak ---
+    KEYCLOAK_TOKEN_URL: "https://iam.esdev.mosip.net/realms/mosip/protocol/openid-connect/token"
+    KEYCLOAK_CLIENT_ID: "mosip-pms-client"   # blank = config file's own default
+
+    # --- TLS ---
+    # Self-signed/internal certs? Set both to "false" (was the y/N prompt).
+    ESIGNET_TLS_VERIFY: "false"
+    API_TLS_VERIFY: "false"
+    CONFORMANCE_TLS_VERIFY: "false"
+
+    # --- Test identity (non-secret half; ID_TYPE only) ---
+    ID_TYPE: "uin"   # uin | vid | phone | email
+
+    # --- OTP / PMS -- required by config.mosip.json, shipped blank there ---
+    # (see the config file's own _comment block and issue #2434 §4)
+    OTP_WS_URL: "https://smtp.qajava21.mosip.net"
+    OTP_RECIPIENT_EMAIL: "3449351160"
+    PMS_BASE_URL: "https://api-internal.qajava21.mosip.net/v1/partnermanager"
+    AUTH_PARTNER_ID: "mpartner-default-mock-rp-oidcdd"
+    AUTH_POLICY_ID: "68895"
+
+    # --- Conformance (only used if apitestrig.surfaces includes it) ---
+    # https://localhost.emobix.co.uk:8443 if apitestrig.conformanceSuite.enabled
+    # below (it resolves to 127.0.0.1, which is what makes the in-pod suite
+    # reachable) -- must match whatever your plan file's client_ids were
+    # registered against in eSignet if you change it.
+    CONFORMANCE_BASE_URL: ""
+
+  # See helm/apitestrig/README.md "Conformance plan config" -- needed only
+  # if apitestrig.surfaces includes "conformance".
+  conformancePlanConfig:
+    enabled: false
+    existingSecret: ""   # e.g. esignet-conformance-plan
+
+  # See helm/apitestrig/README.md "Running the conformance suite itself" --
+  # runs mongodb+server+nginx as extra containers in this pod so
+  # CONFORMANCE_BASE_URL=https://localhost.emobix.co.uk:8443 just works.
+  # No K8s version requirement (regular containers + shareProcessNamespace +
+  # a reaper container, not native sidecars).
+  conformanceSuite:
+    enabled: false
 
 resources:
   limits:
@@ -35,3 +80,17 @@ resources:
   requests:
     cpu: 200m
     memory: 512Mi
+
+reports:
+  # Set persistence.enabled: false if you only want S3 (below), no local PVC.
+  persistence:
+    enabled: false
+    storageClass: ""
+    existingClaim: ""
+
+  s3:
+    enabled: true
+    endpoint: "http://minio.minio:9000"
+    bucket: "esignet-out"
+    pathPrefix: "go-esignet/go"
+    insecure: true   # self-signed cert or plain http
