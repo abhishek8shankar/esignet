@@ -33,14 +33,22 @@ files you edit directly beforehand.
 
 3. **Conformance plan config Secret** — `values.yaml` defaults to running
    `conformance,api,e2e` with the in-pod suite (`apitestrig.conformanceSuite.enabled: true`),
-   which needs this Secret to already exist in the `esignet` namespace:
-   ```bash
-   kubectl create secret generic esignet-conformance-plan -n esignet \
-     --from-file=esignet-config.json=./conformance-suite-private/esignet-config.json \
-     --from-file=esignet-fapi2-config.json=./conformance-suite-private/esignet-fapi2-config.json
-   ```
-   Without it, the run fails with a `config_file ... not readable` error. If
-   you don't have these plan files yet, set `apitestrig.surfaces: "api,e2e"`
+   which needs this in one of two ways:
+   - **Pre-created Secret** (`values.yaml`'s default —
+     `apitestrig.conformancePlanConfig.existingSecret: "esignet-conformance-plan"`):
+     ```bash
+     kubectl create secret generic esignet-conformance-plan -n esignet \
+       --from-file=esignet-config.json=./conformance-suite-private/esignet-config.json \
+       --from-file=esignet-fapi2-config.json=./conformance-suite-private/esignet-fapi2-config.json
+     ```
+   - **Inline in `values.secret.yaml`** — no separate `kubectl` step; `helm
+     upgrade` creates and manages the Secret itself as part of `./install.sh`.
+     Set `apitestrig.conformancePlanConfig.existingSecret: ""` and paste your
+     plan JSON under `apitestrig.conformancePlanConfig.files` — see the
+     commented-out example in `values.secret.yaml.example`.
+
+   Without either, the run fails with a `config_file ... not readable` error.
+   If you don't have these plan files yet, set `apitestrig.surfaces: "api,e2e"`
    in `values.yaml` until you do — see "Conformance surface" below for
    details.
 
