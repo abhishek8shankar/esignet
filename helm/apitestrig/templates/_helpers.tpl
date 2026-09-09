@@ -244,7 +244,8 @@ spec:
           done
           [ "$S3_INSECURE" = "true" ] && export MC_INSECURE=true
           mc alias set target "$S3_ENDPOINT" "$S3_ACCESS_KEY" "$S3_SECRET_KEY"
-          DEST="target/$S3_BUCKET/$S3_PATH_PREFIX/$(date -u +%Y%m%dT%H%M%SZ)"
+          mc mb --ignore-existing "target/$S3_BUCKET"
+          DEST="target/$S3_BUCKET/$S3_PATH_PREFIX/$(date -u +%Y-%m-%d_%H-%M-%S)"
           mc cp --recursive {{ .Values.reports.mountPath }}/ "$DEST/"
           echo "Uploaded reports to $DEST"
       env:
