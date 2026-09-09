@@ -14,9 +14,8 @@
 # directory -- build/refresh it with:
 #   helm dependency build ../../helm/esignet-apitestrig
 #   helm package ../../helm/esignet-apitestrig -d ../../helm
-# This script derives the expected package filename from the chart's own
-# Chart.yaml (name + version) and tells you the exact command to run if it's
-# missing or stale.
+# CHART_VERSION below must match helm/esignet-apitestrig/Chart.yaml's
+# version -- bump both together.
 
 if [ $# -ge 1 ] ; then
   export KUBECONFIG=$1
@@ -29,13 +28,8 @@ set -o pipefail
 
 NS=esignet
 RELEASE_NAME=esignet-apitestrig
-CHART_SRC=../../helm/esignet-apitestrig
-CHART_NAME=$(grep '^name:' "$CHART_SRC/Chart.yaml" | awk '{print $2}')
-CHART_VERSION=$(grep '^version:' "$CHART_SRC/Chart.yaml" | awk '{print $2}')
-if [[ -z "$CHART_NAME" || -z "$CHART_VERSION" ]]; then
-  echo "ERROR: couldn't read name/version from $CHART_SRC/Chart.yaml; EXITING."
-  exit 1
-fi
+CHART_NAME=esignet-apitestrig
+CHART_VERSION=0.0.1-develop
 CHART_PACKAGE="../../helm/${CHART_NAME}-${CHART_VERSION}.tgz"
 VALUES_FILE=values.yaml
 SECRET_VALUES_FILE=values.secret.yaml
@@ -51,8 +45,8 @@ function installing_apitestrig() {
   if [[ ! -f "$CHART_PACKAGE" ]]; then
     echo "ERROR: $CHART_PACKAGE not found."
     echo "Build it first:"
-    echo "  helm dependency build $CHART_SRC"
-    echo "  helm package $CHART_SRC -d ../../helm"
+    echo "  helm dependency build ../../helm/${CHART_NAME}"
+    echo "  helm package ../../helm/${CHART_NAME} -d ../../helm"
     echo "EXITING."
     exit 1
   fi
