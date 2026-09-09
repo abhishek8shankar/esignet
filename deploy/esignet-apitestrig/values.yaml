@@ -43,10 +43,10 @@ apitestrig:
     # --- OTP / PMS -- required by config.mosip.json, shipped blank there ---
     # (see the config file's own _comment block and issue #2434 §4)
     OTP_WS_URL: "https://smtp.sandbox.mosip.net"   # UPDATE 'sandbox' to your environment
-    OTP_RECIPIENT_EMAIL: "provide phone number or email for fetching OTP"
+    OTP_RECIPIENT_EMAIL: "provide phone number or email for fetching OTP"   # UPDATE with your test identity's contact
     PMS_BASE_URL: "https://api-internal.sandbox.mosip.net/v1/partnermanager"   # UPDATE 'sandbox' to your environment
-    AUTH_PARTNER_ID: "auth partner ID to create client ID"
-    AUTH_POLICY_ID: "policy ID to create client ID"
+    AUTH_PARTNER_ID: "auth partner ID to create client ID"   # UPDATE with your auth partner ID
+    AUTH_POLICY_ID: "policy ID to create client ID"   # UPDATE with your policy ID
 
     # --- Conformance (only used if apitestrig.surfaces includes it) ---
     # https://localhost.emobix.co.uk:8443 resolves to 127.0.0.1 via public
@@ -89,7 +89,7 @@ reports:
 
   s3:
     enabled: true
-    endpoint: "your s3 url"
-    bucket: "your bucket name"
+    endpoint: "your s3 url"   # UPDATE with your S3/MinIO endpoint
+    bucket: "your bucket name"   # UPDATE with your bucket name
     pathPrefix: "go"
     insecure: true   # self-signed cert or plain http
