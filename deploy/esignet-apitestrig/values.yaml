@@ -1,9 +1,3 @@
-# Values for ../../helm/esignet-apitestrig, covering everything this deploy wrapper
-# used to collect via interactive prompts. Edit this file directly before
-# running ./install.sh -- it now only asks two questions:
-#   1. the eSignet base URL (the one thing that changes on every run)
-#   2. whether you've actually updated this file
-#
 # Secrets (KEYCLOAK_CLIENT_SECRET, the test identity, S3 keys) do NOT belong
 # in this file -- it's tracked in git. Put those in values.secret.yaml
 # instead (gitignored; copy values.secret.yaml.example to get started).
@@ -34,7 +28,7 @@ apitestrig:
 
   extraEnvVars:
     # --- Keycloak ---
-    KEYCLOAK_TOKEN_URL: "https://iam.esdev.mosip.net/auth/realms/mosip/protocol/openid-connect/token"
+    KEYCLOAK_TOKEN_URL: "https://iam.sandbox.mosip.net/auth/realms/mosip/protocol/openid-connect/token"   # UPDATE 'sandbox' to your environment
     KEYCLOAK_CLIENT_ID: "mosip-pms-client"   # blank = config file's own default
 
     # --- TLS ---
@@ -48,11 +42,11 @@ apitestrig:
 
     # --- OTP / PMS -- required by config.mosip.json, shipped blank there ---
     # (see the config file's own _comment block and issue #2434 §4)
-    OTP_WS_URL: "https://smtp.qajava21.mosip.net"
-    OTP_RECIPIENT_EMAIL: "3449351160"
-    PMS_BASE_URL: "https://api-internal.qajava21.mosip.net/v1/partnermanager"
-    AUTH_PARTNER_ID: "mpartner-default-mock-rp-oidcdd"
-    AUTH_POLICY_ID: "68895"
+    OTP_WS_URL: "https://smtp.sandbox.mosip.net"   # UPDATE 'sandbox' to your environment
+    OTP_RECIPIENT_EMAIL: "provide phone number or email for fetching OTP"
+    PMS_BASE_URL: "https://api-internal.sandbox.mosip.net/v1/partnermanager"   # UPDATE 'sandbox' to your environment
+    AUTH_PARTNER_ID: "auth partner ID to create client ID"
+    AUTH_POLICY_ID: "policy ID to create client ID"
 
     # --- Conformance (only used if apitestrig.surfaces includes it) ---
     # https://localhost.emobix.co.uk:8443 resolves to 127.0.0.1 via public
@@ -95,7 +89,7 @@ reports:
 
   s3:
     enabled: true
-    endpoint: "http://minio.minio:9000"
-    bucket: "esignet-out"
-    pathPrefix: "go-esignet/go"
+    endpoint: "your s3 url"
+    bucket: "your bucket name"
+    pathPrefix: "go"
     insecure: true   # self-signed cert or plain http
