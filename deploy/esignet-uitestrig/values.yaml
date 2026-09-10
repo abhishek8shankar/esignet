@@ -12,7 +12,7 @@
 
 image:
   repository: mosipdev/uitest-esignet
-  tag: develop-go
+  tag: develop
   pullPolicy: Always
 
 triggerKind: cronjob
@@ -42,9 +42,9 @@ uitestrig:
     runOnBrowserStack: "false"   # see uitestrig.browserstack below to switch this
     esignetDbHost: "postgres-postgresql.postgres"   # UPDATE with your consent DB host
     esignetDbPort: "5432"
-    push-reports-to-s3: "no"   # "yes" to also fill in the s3-* keys below
-    s3-host: ""
-    s3-region: ""
+    push-reports-to-s3: "yes"   # also fill in s3-* below and s3-user-key/secret in values.secret.yaml
+    s3-host: ""   # UPDATE with your S3/MinIO endpoint
+    s3-region: ""   # UPDATE with your S3 region (MinIO: any non-empty value, e.g. "us-east-1")
     s3-account: "uitestrig"
 
   browserstack:
