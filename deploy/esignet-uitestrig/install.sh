@@ -25,6 +25,19 @@ UITEST_NS=esignet-uitestrig
 CHART_VERSION=0.0.1-develop
 COPY_UTIL=../copy_cm_func.sh
 
+# CHANGED: small helper to pull a scalar value out of values.yaml so the
+# interactive prompts below can default to whatever's already committed
+# there, instead of always forcing a fresh answer that gets --set on top of
+# it (which is what silently overrode push-reports-to-s3 before - editing
+# the YAML file had no effect because this script's own --set always won).
+# Only handles simple "key: value" / "key: \"value\"" lines, which is all
+# this file uses - not a general YAML parser.
+yaml_val() {
+  local key="$1"
+  grep -m1 -E "^[[:space:]]*${key}:" values.yaml \
+    | sed -E "s/^[^:]+:[[:space:]]*['\"]?([^'\"]*)['\"]?[[:space:]]*\$/\1/"
+}
+
 echo Create $UITEST_NS namespace
 kubectl create ns $UITEST_NS
 
@@ -113,15 +126,42 @@ function installing_uitestrig() {
   # BaseTest.pushReportsToS3). If you skip S3, the Extent report only exists
   # inside the pod's /home/mosip/test-output and is lost once the CronJob's
   # completed pod is garbage-collected, unless you kubectl cp it out first.
+  #
+  # CHANGED: default this prompt off whatever's already in values.yaml
+  # instead of always resetting it. Previously this script hardcoded
+  # push_reports_to_s3 from a *fresh* y/n answer every run and passed it via
+  # --set, which unconditionally beats -f values.yaml - so editing
+  # push-reports-to-s3 in values.yaml directly did nothing on the next
+  # install.sh run. Now: values.yaml is the source of truth for the default,
+  # and this prompt only lets you override it for this run if you want to.
   S3_OPTION=''
-  read -p "Do you have S3 details for storing uitestrig reports? (Y/n) : " ans
+  default_push_reports_to_s3="$(yaml_val push-reports-to-s3)"
+  default_s3_host="$(yaml_val s3-host)"
+  default_s3_region="$(yaml_val s3-region)"
+
+  case "$default_push_reports_to_s3" in
+    [Yy]es) default_ans="Y" ;;
+    *)      default_ans="n" ;;
+  esac
+
+  read -p "Do you have S3 details for storing uitestrig reports? (Y/n) [values.yaml currently: ${default_push_reports_to_s3:-unset}, default: $default_ans] : " ans
+  if [ -z "$ans" ]; then
+    ans="$default_ans"
+  fi
+
   if [[ "$ans" == "y" || "$ans" == "Y" ]]; then
-    read -p "Please provide S3 host: " s3_host
+    read -p "Please provide S3 host${default_s3_host:+ [default: $default_s3_host]}: " s3_host
+    if [ -z "$s3_host" ]; then
+      s3_host="$default_s3_host"
+    fi
     if [[ -z $s3_host ]]; then
       echo "S3 host not provided; EXITING;"
       exit 1;
     fi
-    read -p "Please provide S3 region: " s3_region
+    read -p "Please provide S3 region${default_s3_region:+ [default: $default_s3_region]}: " s3_region
+    if [ -z "$s3_region" ]; then
+      s3_region="$default_s3_region"
+    fi
     if [[ $s3_region == *[' !@#$%^&*()+']* ]]; then
       echo "S3 region should not contain spaces or special characters; EXITING;"
       exit 1;
