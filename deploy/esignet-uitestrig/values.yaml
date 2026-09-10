@@ -3,12 +3,11 @@
 # -- it's tracked in git. Put those in values.secret.yaml instead
 # (gitignored; copy values.secret.yaml.example to get started).
 #
-# Installs into the SAME shared "esignet" namespace as esignet-apitestrig,
-# not a separate one -- unlike the generic mosip/uitestrig chart (whose
-# ConfigMap/Secret names are literal, not release-scoped, and collide with
-# the equally-generic mosip/apitestrig chart's own "db" ConfigMap in a
-# shared namespace), this chart names everything via
-# common.names.fullname, so there's nothing to collide with.
+# Installs into its OWN "esignet-uitestrig" namespace, separate from
+# esignet-apitestrig's "esignet" namespace -- see install.sh's header
+# comment for why a shared namespace would actually be safe with this
+# chart too (unlike the generic mosip/uitestrig chart it replaces), if you
+# ever want to consolidate them.
 
 # Image is supplied at runtime by install.sh (--set image.repository/tag),
 # not fixed here -- see the prompt in install.sh. Left commented so the

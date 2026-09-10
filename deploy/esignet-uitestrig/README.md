@@ -16,11 +16,12 @@ harness. `develop-go` in the image tag just means "built from the
 `develop-go` branch" — `ui-test` itself is 100% Java, and pushes its own
 report to S3 in-process rather than via an uploader sidecar.
 
-Unlike the old setup, this installs into the **same shared `esignet`
-namespace** as `esignet-apitestrig`, not a separate `esignet-uitestrig`
-namespace — the new chart names its ConfigMap/Secret via
-`common.names.fullname`, so there's no more collision risk with
-`apitestrig`'s own generically-named objects to work around.
+This installs into its **own `esignet-uitestrig` namespace**, separate from
+`esignet-apitestrig`'s `esignet` namespace. The new chart names its
+ConfigMap/Secret via `common.names.fullname`, so a shared namespace would
+actually be safe too (unlike the generic `mosip/uitestrig` chart this
+replaces) — this is a deliberate choice to keep the two rigs separated, not
+a requirement.
 
 `install.sh` only asks two questions:
 1. the eSignet base URL (origin only, no path — different from
@@ -86,7 +87,7 @@ TLS" section before relying on this in a real run.
 
 #### Rancher UI
 Trigger the CronJob's job manually from the Rancher UI, same as
-`esignet-apitestrig`, in the `esignet` namespace.
+`esignet-apitestrig`, in the `esignet-uitestrig` namespace.
 
 * Supported test levels: `smoke`, `smokeAndRegression` (default). To
   change it, update `uitestrig.extraEnvVars.ENV_TESTLEVEL` in `values.yaml`
@@ -97,6 +98,6 @@ Trigger the CronJob's job manually from the Rancher UI, same as
 
 #### CLI
 ```sh
-kubectl --kubeconfig=<k8s-config-file> -n esignet create job \
+kubectl --kubeconfig=<k8s-config-file> -n esignet-uitestrig create job \
   --from=cronjob/esignet-uitestrig <job-name>
 ```

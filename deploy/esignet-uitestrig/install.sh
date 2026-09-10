@@ -10,9 +10,13 @@
 # will fail with "chart not found", which is expected while this is still
 # on a feature branch.
 #
-# Installs into the SAME shared "esignet" namespace as esignet-apitestrig
-# (see values.yaml's header comment for why that's safe with this chart,
-# unlike the generic mosip/uitestrig chart it replaces).
+# Installs into its OWN namespace (esignet-uitestrig), separate from
+# esignet-apitestrig's shared "esignet" namespace -- this chart's own
+# ConfigMap/Secret naming (via common.names.fullname) means a shared
+# namespace would actually be safe too (unlike the generic mosip/uitestrig
+# chart this replaces), but keeping the UI and API rigs in separate
+# namespaces is a valid choice either way; best-effort defaults below are
+# read from the "esignet" namespace regardless, via SOURCE_NS.
 #
 # Only two prompts -- everything else lives in values.yaml (tracked in git,
 # edit it directly) and values.secret.yaml (gitignored, holds the consent
@@ -28,7 +32,8 @@ set -o nounset
 set -o errtrace
 set -o pipefail
 
-NS=esignet
+SOURCE_NS=esignet
+NS=esignet-uitestrig
 RELEASE_NAME=esignet-uitestrig
 CHART_VERSION=0.0.1-develop
 VALUES_FILE=values.yaml
@@ -76,11 +81,12 @@ function installing_uitestrig() {
   IMAGE_TAG="${IMAGE_TAG:-develop}"
 
   # Best-effort defaults, same derivation as esignet-apitestrig's
-  # install.sh: read eSignet's own host and the api-internal host if
-  # eSignet is deployed in this namespace. Falls back to a bare prompt if
-  # not found.
-  ESIGNET_HOST=$(kubectl -n "$NS" get cm esignet-global -o json 2>/dev/null | jq -r '.data."mosip-esignet-host"' 2>/dev/null || true)
-  API_INTERNAL_HOST=$(kubectl -n "$NS" get cm esignet-global -o json 2>/dev/null | jq -r '.data."mosip-api-internal-host"' 2>/dev/null || true)
+  # install.sh: read eSignet's own host and the api-internal host from
+  # SOURCE_NS, where eSignet/esignet-apitestrig actually live (uitestrig
+  # gets its own separate namespace, NS, below -- esignet-global doesn't
+  # exist there). Falls back to a bare prompt if not found.
+  ESIGNET_HOST=$(kubectl -n "$SOURCE_NS" get cm esignet-global -o json 2>/dev/null | jq -r '.data."mosip-esignet-host"' 2>/dev/null || true)
+  API_INTERNAL_HOST=$(kubectl -n "$SOURCE_NS" get cm esignet-global -o json 2>/dev/null | jq -r '.data."mosip-api-internal-host"' 2>/dev/null || true)
 
   DEFAULT_ESIGNET_BASE_URL=""
   if [[ -n "$ESIGNET_HOST" && "$ESIGNET_HOST" != "null" ]]; then
