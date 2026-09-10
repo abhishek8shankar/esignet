@@ -10,10 +10,13 @@
 # shared namespace), this chart names everything via
 # common.names.fullname, so there's nothing to collide with.
 
-image:
-  repository: mosipdev/uitest-esignet
-  tag: develop
-  pullPolicy: Always
+# Image is supplied at runtime by install.sh (--set image.repository/tag),
+# not fixed here -- see the prompt in install.sh. Left commented so the
+# expected shape stays documented in one place.
+# image:
+#   repository: mosipdev/uitest-esignet
+#   tag: develop
+#   pullPolicy: Always
 
 triggerKind: cronjob
 crontime: "0 3 * * *"   # hour 0-23

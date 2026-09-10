@@ -67,6 +67,14 @@ function installing_uitestrig() {
   helm repo add mosip https://mosip.github.io/mosip-helm
   helm repo update
 
+  # Image isn't fixed in values.yaml (commented out there) -- supplied here
+  # instead so it's easy to point at a different build without editing that
+  # file every time. Press Enter to accept the shown default.
+  read -rp "Image repository [mosipdev/uitest-esignet]: " IMAGE_REPO
+  IMAGE_REPO="${IMAGE_REPO:-mosipdev/uitest-esignet}"
+  read -rp "Image tag [develop]: " IMAGE_TAG
+  IMAGE_TAG="${IMAGE_TAG:-develop}"
+
   # Best-effort defaults, same derivation as esignet-apitestrig's
   # install.sh: read eSignet's own host and the api-internal host if
   # eSignet is deployed in this namespace. Falls back to a bare prompt if
@@ -120,6 +128,9 @@ function installing_uitestrig() {
     --set uitestrig.configMap.eSignetbaseurl="$ESIGNET_BASE_URL" \
     --set uitestrig.extraEnvVars.ENV_ENDPOINT="$ENV_ENDPOINT" \
     --set uitestrig.extraEnvVars.ENV_USER="$ENV_USER" \
+    --set image.repository="$IMAGE_REPO" \
+    --set image.tag="$IMAGE_TAG" \
+    --set image.pullPolicy=Always \
     "${LOCALE_OPTS[@]}" \
     --wait
 
