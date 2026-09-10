@@ -14,15 +14,21 @@ clusterDomain: cluster.local
 
 extraDeploy: []
 
-image:
-  registry: docker.io
-  repository: mosipdev/uitest-esignet
-  ## The tag is version-y, not "which language" -- ui-test is Java regardless
-  ## of tag. See mosip/esignet#2544's own note on this.
-  tag: develop-go
-  pullPolicy: Always
-  # pullSecrets:
-  #   - myRegistryKeySecretName
+# No default image baked in here -- MUST be supplied at install time via
+# --set or -f (deploy/esignet-uitestrig/values.yaml always does this).
+# Installing with neither will fail with a template error (common.images.image
+# dereferencing a nil .Values.image), not a friendly "image required" message
+# -- left commented rather than removed so the expected shape is still
+# documented in one place.
+# image:
+#   registry: docker.io
+#   repository: mosipdev/uitest-esignet
+#   ## The tag is version-y, not "which language" -- ui-test is Java regardless
+#   ## of tag. See mosip/esignet#2544's own note on this.
+#   tag: develop
+#   pullPolicy: Always
+#   # pullSecrets:
+#   #   - myRegistryKeySecretName
 
 ## ---------------------------------------------------------------------------
 ## How the rig is triggered
