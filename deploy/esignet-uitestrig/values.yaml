@@ -1,152 +1,74 @@
-# values.yaml for the eSignet UI testrig (uitest-esignet), installed via the
-# real `mosip/uitestrig` chart (source: mosip/mosip-functional-tests,
-# helm/uitestrig - NOT mosip-helm/charts/apitestrig, which has a different
-# values shape). Read that chart's values.yaml/templates before changing
-# anything here - the notes below record what's actually confirmed from it,
-# not assumptions.
+# Values for ../../helm/esignet-uitestrig. Secrets (DB password, keycloak
+# admin password, test identities -- PII, etc.) do NOT belong in this file
+# -- it's tracked in git. Put those in values.secret.yaml instead
+# (gitignored; copy values.secret.yaml.example to get started).
 #
-# Confirmed from the chart source:
-# - `modules` is a LIST of {name, enabled, image: {registry, repository, tag,
-#   pullPolicy}} - NOT a map keyed by module name like apitestrig's chart.
-#   `range $module := $.Values.modules` uses $module.name directly for the
-#   CronJob and container names, so a missing/wrong `name` renders an empty
-#   resource name (this is exactly what caused the earlier
-#   "cronjob-esignet-uitestrig-" / "containers[0].name: Required value"
-#   install failure).
-# - The default `modules` list only has admin-ui/pmp-ui/resident-ui/verify-ui/
-#   injiweb-ui entries. There is no built-in "esignet" entry - we add one.
-#   Since `-f values.yaml` replaces (doesn't merge) a list wholesale, listing
-#   only our "esignet" entry here is enough to disable the rest.
-# - ConfigMap/Secret names under `uitestrig.configmaps`/`uitestrig.secrets`
-#   are literal (`db`, `s3`, `uitestrig`, ...), not release-scoped - see
-#   install.sh's namespace-isolation comment for why that matters.
-# - The chart's cronjob.yaml does NOT set container resources or a /dev/shm
-#   volume at all currently - `resources:`/`extraVolumes:` at the chart's
-#   top level exist as values but nothing in cronjob.yaml reads them for the
-#   container spec. Chrome doesn't need /dev/shm here anyway: ui-test's
-#   BaseTestUtil already unconditionally adds --no-sandbox and
-#   --disable-dev-shm-usage to ChromeOptions.
+# Installs into the SAME shared "esignet" namespace as esignet-apitestrig,
+# not a separate one -- unlike the generic mosip/uitestrig chart (whose
+# ConfigMap/Secret names are literal, not release-scoped, and collide with
+# the equally-generic mosip/apitestrig chart's own "db" ConfigMap in a
+# shared namespace), this chart names everything via
+# common.names.fullname, so there's nothing to collide with.
 
-modules:
-  - name: esignet
-    enabled: true
-    image:
-      registry: docker.io
-      repository: mosipdev/uitest-esignet
-      tag: develop-go
-      pullPolicy: Always
+image:
+  repository: mosipdev/uitest-esignet
+  tag: develop-go
+  pullPolicy: Always
 
-# Overridden by install.sh's --set crontime="0 $time * * *"
-crontime: "0 3 * * *"
-
-# eSignet-only deployments use "esignet-global" (created by the esignet
-# deploy scripts), not the chart's own default "global" - see
-# deploy/esignet-apitestrig/values.yaml for the same substitution. "db" is
-# left in (chart default) even though the UI harness doesn't read
-# db-server/db-su-user - it's cheap to leave as-is and installing into a
-# dedicated namespace (see install.sh) means it can't collide with
-# apitestrig's own same-named ConfigMap.
-extraEnvVarsCM:
-  - esignet-global
-  - s3
-  - keycloak-host
-  - db
-  - uitestrig
-
-# Chart default also includes postgres-postgresql and s3, dropped here:
-# postgres-postgresql backs db-su-user/postgres-password aliases the UI
-# harness never reads, and "s3" as a standalone Secret object doesn't work
-# with this chart (see the secrets.yaml bug note under uitestrig.secrets
-# below) - its keys live in the "uitestrig" secret instead.
-extraEnvVarsSecret:
-  - keycloak-client-secrets
-  - uitestrig
+triggerKind: cronjob
+crontime: "0 3 * * *"   # hour 0-23
 
 uitestrig:
-  configmaps:
-    s3:
-      s3-host: ""
-      s3-region: ""
-      s3-account: uitestrig
+  extraEnvVars:
+    # Filled in by install.sh from esignet-global (same derivation as
+    # esignet-apitestrig's install.sh), not set directly here.
+    ENV_ENDPOINT: ""
+    ENV_USER: ""
+    MODULES: "esignet"
+    ENV_TESTLEVEL: "smokeAndRegression"   # smoke | smokeAndRegression
+    # Chrome + the JVM in one cgroup -- keep well under resources.limits.memory.
+    JAVA_EXTRA_OPTS: "-Xmx2g"
 
-    # Not overridden here - left at the chart's own default. The UI harness's
-    # config.properties doesn't read db-server/db-su-user/db-port at all
-    # (esignetDbHost/esignetDbPassword below are what it actually uses); the
-    # only reason this ConfigMap needs to exist at all is that
-    # extraEnvVarsCM above still references it by name.
+  configMap:
+    # Relying-party (health-services) origin. OIDC redirect_uris must be
+    # exactly this + "userprofile".
+    baseurl: "https://healthservices-go.sandbox.mosip.net/"   # UPDATE 'sandbox' to your environment
+    # Blank = same as eSignetbaseurl at install time (install.sh fills this
+    # in for you if left blank here).
+    localeUrl: ""
+    eSignetbaseurl: "https://esignet-go.sandbox.mosip.net"   # UPDATE 'sandbox' to your environment
+    pluginToExecute: "mock"
+    runLanguage: "eng"
+    runOnBrowserStack: "false"   # see uitestrig.browserstack below to switch this
+    esignetDbHost: "postgres-postgresql.postgres"   # UPDATE with your consent DB host
+    esignetDbPort: "5432"
+    push-reports-to-s3: "no"   # "yes" to also fill in the s3-* keys below
+    s3-host: ""
+    s3-region: ""
+    s3-account: "uitestrig"
 
-    uitestrig:
-      ENV_ENDPOINT: ""
-      ENV_USER: ""
-      # Supplements the chart's own lowercase "modules" env var (set
-      # automatically to $module.name) with the uppercase MODULES name
-      # entrypoint.sh/apitest-commons expect.
-      MODULES: esignet
-      ENV_TESTLEVEL: smokeAndRegression
+  browserstack:
+    enabled: false
 
-      # Relying-party (health-services) origin. OIDC redirect_uris must be
-      # exactly baseurl + "userprofile".
-      baseurl: ""
-      localeUrl: ""
-      # Do NOT let this be derived from ENV_ENDPOINT (api-internal host) -
-      # that mapping is wrong for eSignet-go (mosip/esignet#2544 §4).
-      eSignetbaseurl: ""
+  # Self-signed/internal certs? See helm/esignet-uitestrig/README.md
+  # "Self-signed TLS" -- unverified against a live cluster, test before
+  # relying on it.
+  enableInsecure: false
 
-      # eSignet-go has no Spring actuator, so plugin auto-detection always
-      # falls back to mosipid unless this is set explicitly.
-      pluginToExecute: mock
+resources:
+  limits:
+    cpu: "2"
+    memory: 4Gi
+  requests:
+    cpu: 500m
+    memory: 2Gi
 
-      # In-cluster Chrome, not BrowserStack. The JAR default is
-      # runOnBrowserStack=true, so this MUST be set explicitly.
-      runOnBrowserStack: "false"
-
-      runLanguage: eng
-
-      # Consent DB - the UI harness only reads esignetDbHost/esignetDbPassword
-      # (mosip/esignet#2544 §3.8); name/user/schema/port ship in the JAR.
-      esignetDbHost: ""
-      esignetDbPort: "5432"
-
-      # Kept as ConfigMap data (not a Job env: name) because it contains a
-      # hyphen, which is not a valid k8s env var name.
-      keycloak-external-url: ""
-
-      push-reports-to-s3: "no"
-
-  secrets:
-    # NOTE: the chart's templates/secrets.yaml is missing the `---` document
-    # separator that templates/configmaps.yaml has between loop iterations
-    # (confirmed against the chart source, mosip/mosip-functional-tests,
-    # helm/uitestrig). With two secret names defined here, the rendered YAML
-    # becomes one malformed document with duplicate apiVersion/kind/metadata/
-    # data keys - the last one silently wins and the first Secret is dropped
-    # entirely (this is why a separate "s3" secret wasn't being created).
-    # Workaround: keep everything in ONE secret object ("uitestrig" below)
-    # instead of splitting s3 credentials into their own "s3" secret. This is
-    # an upstream chart bug, not something fixable from this repo.
-    uitestrig:
-      s3-user-key: ""
-      s3-user-secret: ""
-      esignetDbPassword: ""
-      keycloak_Password: ""
-      mosip_testrig_client_secret: ""
-      oidcClientId: ""
-
-  volumes:
-    configmaps:
-      scripts:
-        defaultMode: 0777
-        volumeMounts:
-          mountPath: "/home/mosip/scripts/"
-
-enable_insecure: false
-
-# NOTE: do NOT set the following here, even to an empty string - they already
-# ship correct defaults in the uitest-esignet JAR and an empty ConfigMap/
-# Secret value overrides (wipes) the JAR default rather than being ignored
-# (mosip/esignet#2544 §2, §4 "silent trap"):
-#   esignetActuatorEnabled, captchaEnabled, runPrerequisiteSuite,
-#   idTokenExpirySeconds, esignetWellKnownEndPoint, esignetAuthorizeEndpoint,
-#   esignetParEndpoint, authorizeUrlTemplate, keycloakAuthTokenEndPoint,
-#   keycloak-realm-id, mosip_testrig_client_id, esignetDbName,
-#   esignetDbUsername, esignetDbSchema
+reports:
+  # "yes" above under push-reports-to-s3 is the recommended path (no PVC
+  # needed at all -- the JAR pushes its own report to S3 in-process). Only
+  # enable this if you're leaving push-reports-to-s3 at "no".
+  persistence:
+    enabled: false
+    storageClass: ""
+    size: 1Gi
+    existingClaim: ""

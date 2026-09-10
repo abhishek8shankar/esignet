@@ -1,96 +1,102 @@
-# UITESTRIG
+# eSignet UI Test Rig (Java)
 
 ## Introduction
-uitestrig runs the eSignet **UI** automation suite (`ui-test/`, Cucumber + TestNG + Selenium,
-image `uitest-esignet`) on a schedule via CronJob, or on demand via Rancher/CLI. It installs via the
-real `mosip/uitestrig` chart (source: [`mosip/mosip-functional-tests`, `helm/uitestrig`](https://github.com/mosip/mosip-functional-tests/tree/develop/helm/uitestrig)).
+Runs the **Java** UI automation suite (`ui-test/`, Cucumber + TestNG +
+Selenium, image `uitest-esignet`) against the eSignet deployment in this
+cluster, via the
+[`../../helm/esignet-uitestrig`](../../helm/esignet-uitestrig) chart —
+a purpose-built chart, not the generic
+[`mosip/uitestrig`](https://github.com/mosip/mosip-functional-tests/tree/develop/helm/uitestrig)
+chart this used to install (see that chart's real gaps in
+`helm/esignet-uitestrig/README.md`'s header).
 
-This is a **separate** installation from [`esignet-apitestrig`](../esignet-apitestrig), which runs the
-API suite (`apitest-esignet`) via a different chart (`mosip/apitestrig`, from `mosip-helm`) with a
-different values shape - don't copy `--set` flags between the two.
+This is a **separate** installation from
+[`esignet-apitestrig`](../esignet-apitestrig), which runs the Go `api-test`
+harness. `develop-go` in the image tag just means "built from the
+`develop-go` branch" — `ui-test` itself is 100% Java, and pushes its own
+report to S3 in-process rather than via an uploader sidecar.
 
-Unlike apitestrig, this module installs into its **own namespace** (`esignet-uitestrig`) rather than
-the shared `esignet` namespace. The `uitestrig` chart's `configmaps.yaml`/`secrets.yaml` name
-ConfigMaps/Secrets literally (`db`, `s3`, `uitestrig`, ...) rather than scoping them per-release, so a
-second release in the same namespace as apitestrig (whose `apitestrig` chart does the same thing)
-fails to install with a Helm ownership error on the shared `db` ConfigMap name. `install.sh` mirrors
-in the read-only ConfigMaps/Secrets (`esignet-global`, `keycloak-host`, `keycloak-client-secrets`) the
-job needs from `esignet` so this stays a one-command install.
+Unlike the old setup, this installs into the **same shared `esignet`
+namespace** as `esignet-apitestrig`, not a separate `esignet-uitestrig`
+namespace — the new chart names its ConfigMap/Secret via
+`common.names.fullname`, so there's no more collision risk with
+`apitestrig`'s own generically-named objects to work around.
 
-Key differences from apitestrig that this module accounts for:
+`install.sh` only asks two questions:
+1. the eSignet base URL (origin only, no path — different from
+   `esignet-apitestrig`'s `MOSIP_ESIGNET_BASE_URL`, which includes
+   `/v1/esignet`)
+2. whether you've actually reviewed/updated `values.yaml`
 
-| Concern | apitestrig | uitestrig |
-|---|---|---|
-| Image | `apitest-esignet` | `uitest-esignet` |
-| `modules` value shape | map keyed by module name (`modules.esignet.image...`) | **list** of `{name, enabled, image}` - `$module.name` drives the CronJob/container name, so a missing `name` renders an empty resource name and fails to install |
-| Report path | `/home/mosip/testrig/report` | `/home/mosip/test-output` (+ `/home/mosip/screenshots`) |
-| Plugin detection | via actuator | eSignet-go has no actuator - `pluginToExecute=mock` set explicitly |
-| Browser | n/a | in-cluster Chromium only (`runOnBrowserStack=false`); no `/dev/shm` volume needed - `ui-test`'s `BaseTestUtil` already adds `--disable-dev-shm-usage`/`--no-sandbox` unconditionally |
-| DB keys | `db-server`/`db-su-user`/`postgres-password` | `esignetDbHost`/`esignetDbPassword` only |
-| Report storage | S3 or NFS PVC | **S3 only** - the `uitestrig` chart has no PVC/NFS template at all; without S3 the report only exists in the pod until it's garbage-collected |
+Everything else — `baseurl`, consent DB host, report storage, browser
+choice, self-signed TLS — is a value in one of two files you edit directly
+beforehand.
+
+## Setup
+
+1. **`values.yaml`** (tracked in git) — non-secret settings. Every
+   environment-specific value carries a `# UPDATE ...` marker — check each
+   one, don't assume the pre-filled defaults fit your environment.
+
+2. **`values.secret.yaml`** (gitignored) — secrets. Copy the example and
+   fill in real values:
+   ```bash
+   cp values.secret.yaml.example values.secret.yaml
+   ```
+   Holds the consent DB password, Keycloak admin password, testrig client
+   secret, pre-provisioned OIDC client(s), test identities (PII), and S3
+   keys. `install.sh` refuses to run without this file present, and refuses
+   to proceed while it still contains the literal `"changeme"` placeholder.
 
 ## Install
-
-* Review `values.yaml`. In particular confirm the `uitest-esignet` image repository/tag under
-  `modules[0].image`.
-
-* run `./install.sh`.
-```
+```bash
 ./install.sh
 ```
 
-* The script will prompt for:
-  * the hour to run the CronJob,
-  * the relying-party `baseurl`, eSignet `eSignetbaseurl`, and `localeUrl`,
-  * the Keycloak external URL,
-  * whether the cluster has a public domain + valid SSL (selecting `n` mounts a self-signed
-    `cacerts` init-container, same pattern as apitestrig),
-  * S3 details for report storage (see the "Report storage" row above - there's no NFS fallback for
-    this chart; declining just means you retrieve reports with `kubectl cp` before the pod is
-    cleaned up).
-
 ## Uninstall
-* To uninstall uitestrig, run `delete.sh`:
-```sh
+```bash
 ./delete.sh
 ```
 
-## Run uitestrig manually
+## Report storage
+Two options — see `helm/esignet-uitestrig/README.md`'s "Reports" section
+for the full detail:
+1. **In-process S3 push** (recommended, no PVC needed) — set
+   `uitestrig.configMap`'s `push-reports-to-s3: "yes"` in `values.yaml`
+   plus `s3-host`/`s3-region`/`s3-account`, and `uitestrig.secret`'s
+   `s3-user-key`/`s3-user-secret` in `values.secret.yaml`.
+2. **PVC** — set `reports.persistence.enabled: true` in `values.yaml`.
+
+Without either, the report only exists in the pod until it's
+garbage-collected.
+
+## Browser
+Defaults to in-cluster Chromium. To use BrowserStack instead: set
+`uitestrig.browserstack.enabled: true` in `values.yaml`, fill in
+`uitestrig.browserstack.username`/`accessKey` in `values.secret.yaml`, and
+set `uitestrig.configMap.runOnBrowserStack: "true"` yourself in
+`values.yaml`.
+
+## Self-signed TLS
+Set `uitestrig.enableInsecure: true` in `values.yaml`. **Unverified against
+a live cluster** — see `helm/esignet-uitestrig/README.md`'s "Self-signed
+TLS" section before relying on this in a real run.
+
+## Run manually
 
 #### Rancher UI
-* Run uitestrig manually via Rancher UI, the same way as apitestrig (see
-  [`../esignet-apitestrig/README.md`](../esignet-apitestrig/README.md#run-apitestrig-manually) for
-  screenshots), in the `esignet-uitestrig` namespace.
-* Supported test levels: `smoke`, `smokeAndRegression` (default). To change it, update the
-  `ENV_TESTLEVEL` key on the `uitestrig` ConfigMap and rerun the job.
-* To scope a run further, set (and leave unset when not needed - see the "silent trap" note in
-  `values.yaml`): `CUCUMBER_FILTER_TAGS`, `RUN_ONLY_SCENARIO`, `FEATURE_FILES_TO_EXECUTE`.
+Trigger the CronJob's job manually from the Rancher UI, same as
+`esignet-apitestrig`, in the `esignet` namespace.
+
+* Supported test levels: `smoke`, `smokeAndRegression` (default). To
+  change it, update `uitestrig.extraEnvVars.ENV_TESTLEVEL` in `values.yaml`
+  and re-run `./install.sh`.
+* To scope a run further, set (in `uitestrig.extraEnvVars`, and leave
+  blank when not needed): `CUCUMBER_FILTER_TAGS`, `RUN_ONLY_SCENARIO`,
+  `FEATURE_FILES_TO_EXECUTE`.
 
 #### CLI
-* Download the Kubernetes cluster `kubeconfig` file from the Rancher dashboard.
-* Install `kubectl` on your local machine.
-* Create a new job from the existing CronJob:
-  ```
-  kubectl --kubeconfig=<k8s-config-file> -n esignet-uitestrig create job --from=cronjob/<cronjob-name> <job-name>
-  ```
-  example:
-  ```
-  kubectl --kubeconfig=/home/xxx/Downloads/qa4.config -n esignet-uitestrig create job --from=cronjob/cronjob-esignet-uitestrig-esignet cronjob-esignet-uitestrig-esignet-manual
-  ```
-
-## Known gap
-
-The `uitestrig` chart's `cronjob.yaml` doesn't set container `resources` (CPU/memory limits) at all
-currently - there's no lever in this chart to give the Chromium+JVM pod more headroom than whatever
-the cluster's namespace defaults provide. If pods get OOMKilled, that needs a chart-side fix in
-`mosip-functional-tests`, not something `values.yaml` here can work around.
-
-**Secrets bug**: `templates/secrets.yaml` is missing the `---` document separator that
-`templates/configmaps.yaml` has between loop iterations. With more than one entry under
-`uitestrig.secrets`, the rendered manifest becomes a single malformed YAML document with duplicate
-`apiVersion`/`kind`/`metadata`/`data` keys - the last one silently wins and every earlier Secret in
-the loop is dropped without any error (this is why a separate `s3` Secret wasn't actually being
-created). The workaround here is to keep every secret key under a single `uitestrig.secrets.uitestrig`
-entry instead of splitting them into their own named Secret objects. This is an upstream chart bug in
-`mosip/mosip-functional-tests`, not something fixable from this repo - worth reporting/fixing there
-directly if it's still unpatched.
+```sh
+kubectl --kubeconfig=<k8s-config-file> -n esignet create job \
+  --from=cronjob/esignet-uitestrig <job-name>
+```
